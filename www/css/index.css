@@ -1,0 +1,230 @@
+
+:root {
+    color-scheme: dark;
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #090909;
+    color: #ffffff;
+}
+
+button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+}
+
+.application {
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    max-width: 430px;
+    margin: auto;
+    background: #000;
+    overflow: hidden;
+}
+
+.scene {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    background: #000;
+    touch-action: pan-y;
+}
+
+#lecteur {
+    width: 100%;
+    height: 100%;
+    display: block;
+    background: #000;
+    object-fit: contain;
+}
+
+.degrade {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+        to bottom,
+        rgba(0,0,0,.45),
+        transparent 25%,
+        transparent 50%,
+        rgba(0,0,0,.75)
+    );
+}
+
+.en-tete {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: calc(18px + env(safe-area-inset-top)) 18px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 3;
+}
+
+.logo {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: -.5px;
+}
+
+.icone-bouton {
+    border: 0;
+    background: rgba(255,255,255,.17);
+    border-radius: 50%;
+    width: 42px;
+    height: 42px;
+    font-size: 27px;
+}
+
+.chargement {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,.6);
+    border-radius: 12px;
+    padding: 12px 17px;
+    text-align: center;
+    font-size: 14px;
+    z-index: 4;
+}
+
+.message {
+    position: absolute;
+    top: 30%;
+    left: 10%;
+    width: 80%;
+    padding: 16px;
+    border-radius: 12px;
+    background: rgba(160,30,30,.88);
+    text-align: center;
+    line-height: 1.5;
+    z-index: 5;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+.lecture-pause {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 65px;
+    height: 65px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(0,0,0,.25);
+    font-size: 27px;
+    opacity: 0;
+    transition: opacity .2s;
+    z-index: 3;
+}
+
+.lecture-pause.visible {
+    opacity: 1;
+}
+
+.actions-laterales {
+    position: absolute;
+    right: 10px;
+    bottom: calc(95px + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: 19px;
+    align-items: center;
+    z-index: 3;
+}
+
+.action {
+    border: 0;
+    background: transparent;
+    width: 61px;
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    gap: 4px;
+    text-shadow: 0 1px 5px rgba(0,0,0,.8);
+}
+
+.symbole {
+    font-size: 30px;
+    font-weight: bold;
+    line-height: 1;
+}
+
+.action small {
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.action.aime .symbole {
+    color: #ff335f;
+}
+
+.informations {
+    position: absolute;
+    bottom: calc(37px + env(safe-area-inset-bottom));
+    left: 15px;
+    right: 90px;
+    z-index: 3;
+    text-shadow: 0 1px 5px rgba(0,0,0,.9);
+}
+
+.informations strong {
+    display: block;
+    font-size: 16px;
+    margin-bottom: 7px;
+    overflow-wrap: anywhere;
+}
+
+.informations p {
+    margin: 5px 0;
+    font-size: 13px;
+}
+
+.indication {
+    opacity: .75;
+    font-size: 12px !important;
+}
+
+.progression {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: rgba(255,255,255,.25);
+    z-index: 5;
+}
+
+#progressionLecture {
+    width: 0%;
+    height: 100%;
+    background: #ffffff;
+}
+
+@media (min-width: 600px) {
+    body {
+        background: #171a23;
+    }
+
+    .application {
+        box-shadow: 0 0 45px rgba(0,0,0,.65);
+    }
+}

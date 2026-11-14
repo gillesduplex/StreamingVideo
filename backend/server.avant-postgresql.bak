@@ -1,0 +1,264 @@
+
+const express = require("express");
+const { createHash } = require("node:crypto");
+const multer = require("multer");
+const cors = require("cors");
+const path = require("node:path");
+const fs = require("node:fs");
+const { randomUUID } = require("node:crypto");
+
+const { traiterVideo } = require("./services/videoProcessor");
+
+const app = express();
+
+app.use((req, res, next) => {
+    if (req.method === "POST") {
+        console.log(
+            "Requête reçue :",
+            req.method,
+            req.originalUrl
+        );
+    }
+
+    next();
+});
+
+const PORT = 3001;
+
+const temporaires = path.join(
+    __dirname, "uploads", "temporaires"
+);
+
+const videosDir = path.join(
+    __dirname, "storage", "videos"
+);
+
+const catalogueFichier = path.join(
+    __dirname, "storage", "catalogue.json"
+);
+
+fs.mkdirSync(temporaires, { recursive: true });
+fs.mkdirSync(videosDir, { recursive: true });
+
+// Catalogue simple pour le prototype.
+// Plus tard, les informations seront dans PostgreSQL.
+let catalogue = fs.existsSync(catalogueFichier)
+    ? JSON.parse(fs.readFileSync(catalogueFichier, "utf8"))
+    : [];
+
+function sauvegarderCatalogue() {
+    fs.writeFileSync(
+        catalogueFichier,
+        JSON.stringify(catalogue, null, 2),
+        "utf8"
+    );
+}
+
+// Si Node.js a été arrêté pendant une conversion
+catalogue.forEach(video => {
+    if (["en_attente", "en_cours"].includes(video.statut)) {
+        video.statut = "erreur";
+        video.erreur = "Traitement interrompu par le serveur.";
+    }
+});
+
+sauvegarderCatalogue();
+
+app.use(express.json());
+
+// Uniquement pour les tests sur le réseau local
+app.use(cors());
+
+// Page de test d'ajout des vidéos
+app.use(express.static(path.join(__dirname, "public")));
+
+// Diffusion des playlists et fragments HLS
+app.use("/hls", express.static(videosDir, {
+    setHeaders: (res, nomFichier) => {
+        if (nomFichier.endsWith(".m3u8")) {
+            res.setHeader(
+                "Content-Type",
+                "application/vnd.apple.mpegurl"
+            );
+        }
+
+        if (nomFichier.endsWith(".m4s")) {
+            res.setHeader("Content-Type", "video/mp4");
+        }
+    }
+}));
+
+
+function calculerSHA256(cheminFichier) {
+    return new Promise((resolve, reject) => {
+        const hash = createHash("sha256");
+        const lecture = fs.createReadStream(cheminFichier);
+
+        lecture.on("data", morceau => {
+            hash.update(morceau);
+        });
+
+        lecture.on("end", () => {
+            resolve(hash.digest("hex"));
+        });
+
+        lecture.on("error", reject);
+    });
+}
+
+
+// Stockage temporaire avec un nom unique
+const stockage = multer.diskStorage({
+    destination: temporaires,
+
+    filename: (req, fichier, callback) => {
+        callback(null, randomUUID() + ".mp4");
+    }
+});
+
+const upload = multer({
+    storage: stockage,
+
+    limits: {
+        fileSize: 2 * 1024 * 1024 * 1024,
+        files: 1
+    },
+
+    fileFilter: (req, fichier, callback) => {
+        if (path.extname(fichier.originalname)
+            .toLowerCase() !== ".mp4") {
+            return callback(
+                new Error("Sélectionne une vidéo MP4.")
+            );
+        }
+
+        callback(null, true);
+    }
+});
+
+// Vérifier le backend
+app.get("/api/test", (req, res) => {
+    res.json({
+        message: "Backend StreamingVideo opérationnel"
+    });
+});
+
+// Voir les vidéos prêtes à être diffusées
+app.get("/api/videos", (req, res) => {
+    res.json(
+        catalogue.filter(video => video.statut === "prete")
+    );
+});
+
+// Voir le statut d'une vidéo
+app.get("/api/videos/:id", (req, res) => {
+    const video = catalogue.find(
+        v => v.id === req.params.id
+    );
+
+    if (!video) {
+        return res.status(404).json({
+            message: "Vidéo introuvable."
+        });
+    }
+
+    res.json(video);
+});
+
+// Une seule conversion à la fois pour ce prototype
+let fileTraitement = Promise.resolve();
+
+// Envoyer une vidéo
+app.post("/api/videos", (req, res) => {
+
+    upload.single("video")(req, res, (erreur) => {
+
+        if (erreur) {
+            return res.status(400).json({
+                message: erreur.message
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({
+                message: "Aucune vidéo reçue."
+            });
+        }
+
+        const id = randomUUID();
+
+        const video = {
+            id,
+            titre: path.basename(req.file.originalname),
+            statut: "en_attente",
+            url_hls: null,
+            date_ajout: new Date().toISOString()
+        };
+
+        catalogue.push(video);
+        sauvegarderCatalogue();
+
+        // Répondre sans attendre toute la conversion
+        res.status(202).json(video);
+
+        fileTraitement = fileTraitement.then(async () => {
+
+            const sortie = path.join(videosDir, id);
+
+            try {
+                video.statut = "en_cours";
+                sauvegarderCatalogue();
+                video.hash_sha256 = await calculerSHA256(req.file.path);
+                sauvegarderCatalogue();
+                const infos = await traiterVideo(
+                    req.file.path,
+                    sortie
+                );
+
+                video.duree = infos.duree;
+                video.largeur = infos.largeur;
+                video.hauteur = infos.hauteur;
+
+                video.url_hls = `/hls/${id}/index.m3u8`;
+                video.statut = "prete";
+
+                sauvegarderCatalogue();
+
+                // Supprimer le MP4 temporaire
+                fs.unlinkSync(req.file.path);
+
+                console.log("Vidéo prête :", id);
+
+            } catch (e) {
+                console.error("Traitement :", e.message);
+
+                video.statut = "erreur";
+                video.erreur = e.message;
+                sauvegarderCatalogue();
+
+                fs.rmSync(sortie, {
+                    recursive: true,
+                    force: true
+                });
+
+                fs.rmSync(req.file.path, {
+                    force: true
+                });
+            }
+
+        }).catch(e => {
+            console.error("Erreur de file :", e);
+        });
+    });
+});
+
+app.listen(PORT, "127.0.0.1", () => {
+    console.log(
+        "StreamingVideo démarré : http://localhost:" + PORT
+    );
+});
+
+// Interface de lecture StreamingVideo
+app.use("/app", express.static(
+    path.join(__dirname, "../www")
+));

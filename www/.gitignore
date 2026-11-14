@@ -1,0 +1,29 @@
+
+# Dépendances
+node_modules/
+
+# Paramètres secrets
+.env
+.env.*
+!.env.example
+
+# Dossiers générés par Cordova
+platforms/
+plugins/
+
+# Fichiers Android générés
+*.apk
+*.aab
+.gradle/
+
+# Vidéos reçues et converties par le serveur
+backend/uploads/
+backend/storage/originaux/
+backend/storage/videos/
+
+# Logs
+*.log
+
+# Fichiers système
+.DS_Store
+Thumbs.db

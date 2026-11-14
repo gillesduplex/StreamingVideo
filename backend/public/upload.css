@@ -1,0 +1,35 @@
+:root { color-scheme: dark; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; min-height: 100vh; background: #090c15; color: #fff; }
+.studio { width: min(100%, 500px); margin: auto; min-height: 100vh; padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+.entete { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 12px; }
+.entete h1 { margin: 0; font-size: 19px; font-weight: 750; }
+.retour, .bouton-outil { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #1a2030; border: 1px solid #2c3448; color: #fff; text-decoration: none; font-size: 24px; cursor: pointer; }
+.cadre-video { width: min(100%, 360px); height: min(64vh, 640px); min-height: 280px; margin: auto; background: #020305; position: relative; overflow: hidden; border: 1px solid #2b3446; border-radius: 22px; box-shadow: 0 14px 42px #0005; }
+.cadre-video video { width: 100%; height: 100%; object-fit: contain; display: block; background: black; }
+#camera.miroir { transform: scaleX(-1); }
+.indication { position: absolute; bottom: 17px; left: 12px; right: 12px; text-align: center; font-size: 13px; text-shadow: 0 2px 6px #000; background: #0007; padding: 8px; border-radius: 9px; }
+.minuteur { position: absolute; left: 14px; top: 16px; padding: 7px 11px; color: #fff; background: #aa113a; font-weight: 750; border-radius: 50px; font-variant-numeric: tabular-nums; }
+.reessayer { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border: none; border-radius: 12px; padding: 13px; background: #2563eb; color: white; white-space: nowrap; font-weight: 700; cursor: pointer; }
+.commandes { width: min(100%, 350px); margin: 18px auto 0; display: grid; grid-template-columns: 1fr 1fr 1fr; justify-items: center; align-items: center; }
+.tuile-galerie { width: 65px; height: 65px; background: #1d2537; border: 1px solid #424d62; border-radius: 14px; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; }
+.icone-galerie { font-size: 29px; line-height: 1; }
+.tuile-galerie small { font-size: 11px; }
+.bouton-capture { width: 77px; height: 77px; border-radius: 50%; border: 4px solid #fff; background: transparent; display: grid; place-items: center; cursor: pointer; }
+.pastille { width: 57px; height: 57px; background: #f43f5e; border-radius: 50%; transition: border-radius .2s, transform .2s; }
+.bouton-capture.encours .pastille { width: 29px; height: 29px; border-radius: 7px; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+.consigne { text-align: center; font-size: 13px; color: #aebad1; margin: 12px 0 16px; }
+.commandes-apercu { width: min(100%, 420px); margin: 18px auto 0; }
+.nom-fichier { font-size: 13px; color: #b8c4dc; overflow-wrap: anywhere; text-align: center; }
+.boutons-apercu { display: flex; gap: 10px; }
+.boutons-apercu button { flex: 1; min-width: 0; border-radius: 12px; border: 0; padding: 13px 10px; font-weight: 700; cursor: pointer; }
+.bouton-secondaire { color: #ffb6c2; background: #39202c; border: 1px solid #813247 !important; }
+.bouton-primaire { color: #fff; background: #2563eb; }
+.statut { width: min(100%, 420px); margin: 16px auto 0; padding: 12px 14px; border-radius: 12px; background: #161d2b; min-height: 52px; }
+.statut p { margin: 0; color: #c5d1e5; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.statut p.erreur { color: #ffabb9; }
+progress { width: 100%; height: 10px; margin-top: 12px; accent-color: #3b82f6; }
+#voirVideo { display: block; margin-top: 12px; color: #93c5fd; font-weight: 650; text-decoration: none; }
+@media (max-width: 400px) { .cadre-video { height: min(61vh, 570px); } .boutons-apercu button { font-size: 12px; } }

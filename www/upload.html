@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+  <meta
+      http-equiv="Content-Security-Policy"
+      content="
+          default-src 'self' data: blob:;
+          script-src 'self' 'unsafe-inline';
+          style-src 'self' 'unsafe-inline';
+          img-src 'self' data: blob:;
+          connect-src 'self' http://192.168.1.193:3001;
+          media-src 'self' blob: http://192.168.1.193:3001;
+          worker-src 'self' blob:;
+      ">
+
+  <title>StreamingVideo — Créer une vidéo</title>
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <meta name="theme-color" content="#101014">
+  <link rel="stylesheet" href="upload.css">
+</head>
+<body>
+  <main class="studio">
+    <header class="entete">
+      <a class="retour" href="index.html" aria-label="Retour aux vidéos">&#8592;</a>
+      <div class="studio-heading"><span>À TON TOUR DE BRILLER</span><h1>Un instant à partager<span>.</span></h1></div>
+      <button id="retourner" class="bouton-outil" type="button" aria-label="Changer de caméra">&#8635;</button>
+    </header>
+
+    <section class="cadre-video" aria-label="Caméra et aperçu vidéo">
+      <video id="camera" autoplay muted playsinline></video>
+      <video id="apercu" controls playsinline hidden></video>
+      <div id="indication" class="indication">Autorise l'accès à la caméra pour commencer.</div>
+      <div id="minuteur" class="minuteur" hidden>● 00:00</div>
+      <button id="reessayer" class="reessayer" type="button" hidden>Activer la caméra</button>
+    </section>
+
+    <section id="commandesCamera" class="commandes" aria-label="Commandes de la caméra">
+      <button id="galerie" class="tuile-galerie" type="button" aria-label="Importer une vidéo depuis la galerie">
+        <span class="icone-galerie">▧</span>
+        <small>Galerie</small>
+      </button>
+      <button id="enregistrer" class="bouton-capture" type="button" aria-label="Démarrer l'enregistrement">
+        <span class="pastille"></span>
+      </button>
+      <div class="espace"></div>
+    </section>
+    <p id="consigne" class="consigne">Appuie sur le bouton rouge pour enregistrer (60 secondes maximum).</p>
+
+    <section id="commandesApercu" class="commandes-apercu" hidden>
+      <p id="nomFichier" class="nom-fichier"></p>
+      <div class="publication-details">
+        <label for="titrePublication">Donne un titre à ton moment</label>
+        <input id="titrePublication" type="text" maxlength="255" placeholder="Une histoire commence ici…">
+        <label for="descriptionPublication">La petite histoire <span>facultatif</span></label>
+        <textarea id="descriptionPublication" rows="3" maxlength="2000" placeholder="Raconte-nous ce qui se passe… #inspiration"></textarea>
+        <p>Publié en tant que <a id="auteurPublication" href="index.html">toi</a></p>
+      </div>
+      <div class="boutons-apercu">
+        <button id="supprimer" type="button" class="bouton-secondaire">Supprimer et recommencer</button>
+        <button id="envoyer" type="button" class="bouton-primaire">Publier la vidéo</button>
+      </div>
+    </section>
+
+    <input id="fichier" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.mkv,.3gp,.3gpp,.m4v" hidden>
+
+    <section class="statut" aria-live="polite">
+      <p id="etat">La caméra sera affichée ici.</p>
+      <progress id="progression" max="100" value="0" hidden></progress>
+      <a id="voirVideo" href="index.html" hidden>Voir la vidéo publiée &#8594;</a>
+    </section>
+  </main>
+  <script src="cordova.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="upload.js" defer></script>
+</body>
+</html>
