@@ -11,6 +11,10 @@ ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS auteur_id uuid
     REFERENCES public.stream_profiles(id) ON DELETE SET NULL;
 ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT '';
 ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS chemin_affiche text;
+ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS media_type varchar(16) NOT NULL DEFAULT 'video';
+ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS photo_count integer;
+ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS photo_interval_seconds integer;
+ALTER TABLE public.videos ADD COLUMN IF NOT EXISTS audio_title varchar(120);
 
 CREATE TABLE IF NOT EXISTS public.video_likes (
     video_id uuid NOT NULL REFERENCES public.videos(id) ON DELETE CASCADE,

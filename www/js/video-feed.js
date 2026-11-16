@@ -10,6 +10,11 @@ SV.VideoFeed = class VideoFeed {
         this.callbacks = callbacks;
         this.items = [];
         this.cards = new Map();
+        // Historique de session partagé entre les pages, effacé à l'actualisation.
+        this.watchHistory = new Map();
+        this.historyKey = "sv.watch-history.session.v1";
+        this.historyLastSave = 0;
+        this.restoreHistory();
         this.slots = [this.createSlot(), this.createSlot()];
         this.active = null;
         this.index = -1;
@@ -60,6 +65,9 @@ SV.VideoFeed = class VideoFeed {
                         const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
                         this.container.scrollTo({ top: target * this.container.clientHeight, behavior: reduced ? "instant" : "smooth" });
                     });
+                } else if (gesture.index === this.index && Math.abs(deltaX) >= 60 && Math.abs(deltaX) > Math.abs(deltaY) &&
+                    this.items[gesture.index]?.media_type === "photo") {
+                    this.navigatePhoto(deltaX < 0 ? 1 : -1);
                 }
             }
             this.scrollTimer = setTimeout(() => this.settle(), 120);
@@ -80,9 +88,13 @@ SV.VideoFeed = class VideoFeed {
         });
         listen(window, "offline", () => this.checkHealth());
         listen(window, "online", () => this.recover());
-        this.resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => {
-            if (this.index >= 0 && !this.touching && !this.scrolling) this.align(this.index);
-        }) : null;
+        listen(window, "pagehide", () => { this.remember(this.active, true); this.persistHistory(); });
+        // Une rotation redimensionne le fil avant que son ancienne position en
+        // pixels soit recalculée. Elle ne représente pas un geste utilisateur.
+        listen(window, "resize", () => this.protectLayout());
+        listen(window, "orientationchange", () => this.protectLayout());
+        listen(document, "sv:feed-layout-change", () => this.protectLayout());
+        this.resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => this.protectLayout()) : null;
         this.resizeObserver?.observe(container);
         this.healthTimer = setInterval(() => this.checkHealth(), 400);
     }
@@ -101,10 +113,62 @@ SV.VideoFeed = class VideoFeed {
 
     get video() { return this.active?.video || null; }
 
+    navigatePhoto(direction) {
+        const slot = this.active;
+        const item = slot?.item;
+        const count = Number(item?.photo_count);
+        const interval = Number(item?.photo_interval_seconds) || 3;
+        if (item?.media_type !== "photo" || !Number.isInteger(count) || count < 1 || !slot.video) return false;
+        const current = Math.min(count - 1, Math.max(0, Math.floor(slot.video.currentTime / interval)));
+        const next = Math.max(0, Math.min(count - 1, current + Math.sign(direction)));
+        if (next === current) return false;
+        const end = Number.isFinite(slot.video.duration) ? slot.video.duration - 0.05 : Infinity;
+        slot.video.currentTime = Math.min(next * interval + 0.05, end);
+        this.callbacks.onPhotoIndex?.(next, count);
+        return true;
+    }
+
+    restoreHistory() {
+        try {
+            const navigation = window.performance?.getEntriesByType?.("navigation")?.[0]?.type;
+            const reloaded = navigation === "reload" || (!navigation && window.performance?.navigation?.type === 1);
+            if (reloaded) window.sessionStorage.removeItem(this.historyKey);
+            else {
+                const saved = JSON.parse(window.sessionStorage.getItem(this.historyKey) || "[]");
+                if (Array.isArray(saved)) for (const entry of saved.slice(-100)) {
+                    if (entry?.item?.id && Number.isFinite(entry.position) && entry.position >= 0) this.watchHistory.set(entry.item.id, entry);
+                }
+            }
+        } catch { /* Lecture possible même si le stockage de session est désactivé. */ }
+    }
+
+    persistHistory() {
+        try { window.sessionStorage.setItem(this.historyKey, JSON.stringify([...this.watchHistory.values()])); }
+        catch { /* L'historique reste disponible pendant la vie de ce lecteur. */ }
+        this.historyLastSave = Date.now();
+    }
+
+    remember(slot = this.active, force = false) {
+        if (!slot?.item || !slot.video || slot.resumePosition != null) return;
+        const position = Number(slot.video.currentTime);
+        if (!Number.isFinite(position) || position < 0) return;
+        const duration = Number(slot.video.duration) || Number(slot.item.duree) || 0;
+        const finished = duration > 0 && position >= duration - 0.15;
+        this.watchHistory.delete(slot.item.id);
+        const item = { id: slot.item.id, titre: slot.item.titre, duree: slot.item.duree };
+        this.watchHistory.set(item.id, { item, position: finished ? 0 : position, duration, finished });
+        if (this.watchHistory.size > 100) this.watchHistory.delete(this.watchHistory.keys().next().value);
+        if (force || Date.now() - this.historyLastSave >= 1500) this.persistHistory();
+    }
+
+    historyItems() { return [...this.watchHistory.values()].reverse(); }
+    clearHistory() { this.watchHistory.clear(); this.persistHistory(); }
+
     setItems(items, selectedId) {
         const changed = this.items.length !== items.length || items.some((item, i) => this.items[i]?.id !== item.id);
         this.items = items;
         if (!changed) return;
+        this.remember(this.active, true);
         this.mutating = true;
         this.container.style.scrollSnapType = "none";
         const ids = new Set(items.map(item => item.id));
@@ -163,7 +227,66 @@ SV.VideoFeed = class VideoFeed {
         this.container.scrollTo({ top: Math.max(0, index) * this.container.clientHeight, behavior: "instant" });
     }
 
-    select(index, { behavior = "instant", scroll = true, position = 0 } = {}) {
+    // Conserver exactement le lecteur actif pendant les changements de taille.
+    // Les scrolls provoqués par le navigateur pendant la rotation sont ignorés,
+    // puis la carte active est replacée sans redémarrer ni changer de vidéo.
+    protectLayout() {
+        if (this.destroyed || this.index < 0 || !this.items.length) return;
+        const generation = this.layoutGeneration = (this.layoutGeneration || 0) + 1;
+        this.layoutLocked = true;
+        // La WebView peut mettre la vidéo en pause après l'événement de taille.
+        // Garder une courte fenêtre pour reprendre si elle jouait déjà.
+        this.layoutRecoveryUntil = Date.now() + 8000;
+        this.layoutRetryCount = 0;
+        clearTimeout(this.layoutResumeTimer);
+        this.scrolling = false;
+        this.scrollTarget = null;
+        clearTimeout(this.scrollTimer);
+        clearTimeout(this.layoutTimer);
+        this.align(this.index);
+        if (!this.active?.video.ended) this.startActive();
+        this.layoutTimer = setTimeout(() => {
+            if (this.destroyed || this.index < 0 || generation !== this.layoutGeneration) return;
+            this.align(this.index);
+            // Le scroll programmatique peut être livré à la frame suivante.
+            requestAnimationFrame(() => {
+                if (this.destroyed || generation !== this.layoutGeneration) return;
+                if (!this.active?.video.ended) this.startActive();
+                this.scheduleLayoutResume(this.active);
+                this.layoutTimer = setTimeout(() => {
+                    if (generation === this.layoutGeneration) {
+                        this.layoutLocked = false;
+                        if (!this.active?.video.ended) this.startActive();
+                        this.scheduleLayoutResume(this.active);
+                    }
+                }, 80);
+            });
+        }, 500);
+    }
+
+    // Une pause involontaire due à la rotation ne doit pas devenir une pause
+    // utilisateur. Une pause demandée, une application suspendue ou une fin de
+    // vidéo restent prioritaires ; une interdiction d'autoplay reste visible.
+    scheduleLayoutResume(slot) {
+        if (!slot || slot !== this.active || this.destroyed || Date.now() > (this.layoutRecoveryUntil || 0) ||
+            !this.wantPlayback || this.suspended || this.scrolling || slot.fatal || slot.blocked ||
+            slot.rebuffering || !slot.manifestReady || slot.video.ended || !slot.video.paused || slot.playPromise) return;
+        if ((this.layoutRetryCount || 0) >= 15) {
+            slot.blocked = true;
+            this.callbacks.onState?.(this.state());
+            return;
+        }
+        const generation = slot.generation;
+        clearTimeout(this.layoutResumeTimer);
+        this.layoutResumeTimer = setTimeout(() => {
+            if (slot !== this.active || slot.generation !== generation || Date.now() > this.layoutRecoveryUntil ||
+                !this.wantPlayback || this.suspended || !slot.video.paused || slot.video.ended) return;
+            this.layoutRetryCount = (this.layoutRetryCount || 0) + 1;
+            this.startActive();
+        }, 200);
+    }
+
+    select(index, { behavior = "instant", scroll = true, position } = {}) {
         if (index < 0 || index >= this.items.length || this.destroyed) return;
         if (behavior === "smooth" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) behavior = "instant";
         const item = this.items[index];
@@ -174,17 +297,23 @@ SV.VideoFeed = class VideoFeed {
             clearTimeout(this.clickTimer);
             const old = this.active;
             if (old) {
+                this.remember(old, true);
                 old.video.muted = true; old.video.pause(); old.video.removeAttribute("id");
                 old.video.setAttribute("aria-hidden", "true");
                 old.hls?.stopLoad(); old.loading = false;
                 old.card?.classList.remove("is-active");
             }
+            const resumeAt = Number.isFinite(position) ? Math.max(0, position) : (this.watchHistory.get(item.id)?.position || 0);
             let slot = this.slots.find(candidate => candidate.item?.id === item.id);
             if (!slot || slot.fatal) {
                 slot ||= this.slots.find(candidate => candidate !== old) || this.slots[0];
-                this.prepare(slot, item, position);
+                this.prepare(slot, item, resumeAt);
             }
             this.active = slot;
+            // Un lecteur préchargé peut déjà exister à 0 : il doit lui aussi
+            // reprendre la position mémorisée quand il devient actif.
+            slot.resumePosition = resumeAt;
+            this.restorePosition(slot);
             this.wantPlayback = true;
             slot.blocked = false;
             slot.waitingSince = Date.now();
@@ -249,7 +378,7 @@ SV.VideoFeed = class VideoFeed {
         Object.assign(slot, { item, card, ready: false, shown: false, blocked: false, fatal: false,
             networkError: false, prefetched: false, rebuffering: false,
             retries: 0, retryAt: 0, mediaRetries: 0, playPromise: null,
-            waitingSince: 0, lastProgressAt: Date.now(), lastTime: 0 });
+            waitingSince: 0, lastProgressAt: Date.now(), lastTime: 0, resumePosition: position });
         slot.events = new AbortController();
         const valid = () => slot.generation === generation && !this.destroyed;
         const listen = (name, callback) => slot.video.addEventListener(name, () => { if (valid()) callback(); }, { signal: slot.events.signal });
@@ -264,6 +393,7 @@ SV.VideoFeed = class VideoFeed {
             slot.ready = true;
             if (slot === this.active) this.startActive();
         });
+        listen("loadedmetadata", () => { if (slot === this.active) this.restorePosition(slot); });
         listen("playing", () => {
             if (slot !== this.active || this.suspended || !this.wantPlayback || this.scrolling || slot.rebuffering) {
                 slot.video.pause(); slot.video.muted = true; return;
@@ -272,11 +402,16 @@ SV.VideoFeed = class VideoFeed {
             this.requestFrame(slot);
             this.callbacks.onState?.(this.state());
         });
-        listen("pause", () => { if (slot === this.active) this.callbacks.onState?.(this.state()); });
+        listen("pause", () => {
+            if (slot !== this.active) return;
+            this.callbacks.onState?.(this.state());
+            this.scheduleLayoutResume(slot);
+        });
         listen("waiting", () => this.waitForData(slot));
         listen("stalled", () => this.waitForData(slot));
         listen("timeupdate", () => {
             if (slot !== this.active) return;
+            if (slot.resumePosition == null) this.remember(slot);
             if (Math.abs(slot.video.currentTime - slot.lastTime) > 0.03) {
                 slot.lastTime = slot.video.currentTime;
                 slot.lastProgressAt = Date.now();
@@ -288,6 +423,7 @@ SV.VideoFeed = class VideoFeed {
             this.callbacks.onProgress?.(slot.video.currentTime, slot.video.duration);
         });
         listen("ended", () => {
+            if (slot === this.active) this.remember(slot, true);
             if (slot === this.active && !this.suspended && this.wantPlayback && !this.scrolling) this.callbacks.onEnd?.();
         });
         listen("error", () => {
@@ -356,11 +492,22 @@ SV.VideoFeed = class VideoFeed {
             slot.video.src = source;
             listen("loadedmetadata", () => {
                 slot.manifestReady = true;
-                if (position > 0) slot.video.currentTime = position;
+                if (slot === this.active) this.restorePosition(slot);
                 if (slot === this.active) this.startActive();
             });
             slot.video.load();
         } else this.fail(slot, "Ce navigateur ne prend pas en charge la lecture HLS.");
+    }
+
+    restorePosition(slot) {
+        const position = slot?.resumePosition;
+        if (!Number.isFinite(position)) { if (slot) slot.resumePosition = null; return; }
+        if (position === 0 && (slot.video.readyState < 1 || slot.video.currentTime < 0.1)) { slot.resumePosition = null; return; }
+        if (slot.video.readyState < 1) return;
+        const duration = slot.video.duration;
+        const target = Number.isFinite(duration) && duration > 0 ? Math.min(position, Math.max(0, duration - 0.1)) : position;
+        try { slot.video.currentTime = target; slot.resumePosition = null; }
+        catch { /* La prochaine métadonnée permettra une nouvelle tentative. */ }
     }
 
     reportLevels(slot) {
@@ -389,12 +536,16 @@ SV.VideoFeed = class VideoFeed {
         slot.playPromise = attempt;
         Promise.resolve(attempt).catch(error => {
             if (slot.generation !== generation || slot !== this.active || this.suspended || !this.wantPlayback || this.scrolling) return;
-            if (error.name === "NotAllowedError") { slot.blocked = true; this.setStatus(""); }
+            if (error.name === "NotAllowedError" && Date.now() > (this.layoutRecoveryUntil || 0)) { slot.blocked = true; this.setStatus(""); }
+            else if (error.name === "NotAllowedError") slot.blocked = false;
             else if (error.name !== "AbortError") this.fail(slot, "La lecture n’a pas pu démarrer. Réessaie.");
         }).finally(() => {
             if (slot.generation !== generation) return;
             slot.playPromise = null;
-            if (slot === this.active) this.callbacks.onState?.(this.state());
+            if (slot === this.active) {
+                this.callbacks.onState?.(this.state());
+                this.scheduleLayoutResume(slot);
+            }
         });
     }
 
@@ -444,13 +595,13 @@ SV.VideoFeed = class VideoFeed {
         const unavailable = !active?.shown || active.fatal || active.blocked || active.rebuffering || this.suspended || this.scrolling ||
             navigator.onLine === false || navigator.connection?.saveData;
         // Suspendre le téléchargement de réserve avant qu'il puisse vider le tampon visible.
-        if (unavailable || (!complete && ahead < 5) || active?.waitingSince) {
+        if (unavailable || (!complete && ahead < 4) || active?.waitingSince) {
             if (spare?.hls && spare.loading && !spare.prefetched) {
                 spare.hls.stopLoad(); spare.loading = false;
             }
             return;
         }
-        if (!complete && (Date.now() < active.preloadAfter || ahead < 8)) return;
+        if (!complete && (Date.now() < active.preloadAfter || ahead < 6)) return;
         const next = this.items[this.index + 1];
         if (!next || !spare) return;
         if (spare.item?.id === next.id) {
@@ -479,7 +630,7 @@ SV.VideoFeed = class VideoFeed {
         const video = slot.video;
         const ahead = this.bufferedAhead(video);
         const remaining = Number.isFinite(video.duration) ? video.duration - video.currentTime : Infinity;
-        if (ahead < 3 && !(ahead > 0 && ahead >= remaining - 0.1)) return;
+        if (ahead < 1.5 && !(ahead > 0 && ahead >= remaining - 0.1)) return;
         slot.rebuffering = false;
         slot.waitingSince = 0;
         this.setStatus("");
@@ -491,7 +642,7 @@ SV.VideoFeed = class VideoFeed {
         this.status = state;
         const texts = {
             unstable: "Connexion instable",
-            offline: "Connexion interrompue. Chargement…",
+            offline: "Hors connexion · Chargement…",
             loading: "Chargement… Connexion instable"
         };
         this.callbacks.onStatus?.(state, texts[state] || "");
@@ -501,13 +652,14 @@ SV.VideoFeed = class VideoFeed {
         if (this.active) this.resumeAfterBuffer(this.active);
         this.managePrefetch();
         const slot = this.active;
-        if (!slot || !this.wantPlayback || this.suspended || this.scrolling || slot.blocked || slot.fatal || slot.video.ended) {
+        if (!slot || this.suspended || this.scrolling || slot.fatal) {
             this.setStatus(""); return;
         }
-        // L'indication hors ligne ne masque pas une lecture qui avance dans son tampon.
+        if (navigator.onLine === false) { this.setStatus("offline"); return; }
+        if (!this.wantPlayback || slot.blocked || slot.video.ended) { this.setStatus(""); return; }
+        // Signaler la coupure même si le tampon permet encore une lecture momentanée.
         const progressing = slot.shown && !slot.video.paused && Date.now() - slot.lastProgressAt < 1800;
         if (progressing) { this.setStatus(""); return; }
-        if (navigator.onLine === false) { this.setStatus("offline"); return; }
         if (!slot.waitingSince) return;
         const waiting = Date.now() - slot.waitingSince;
         this.setStatus(waiting >= 10000 ? "loading" : waiting >= 2500 ? "unstable" : "");
@@ -650,7 +802,7 @@ SV.VideoFeed = class VideoFeed {
     }
 
     handleScroll() {
-        if (this.mutating || !this.items.length) return;
+        if (this.mutating || this.layoutLocked || !this.items.length) return;
         const height = this.container.clientHeight;
         if (!height) return;
         const position = this.container.scrollTop / height;
@@ -668,7 +820,7 @@ SV.VideoFeed = class VideoFeed {
     }
 
     settle() {
-        if (this.destroyed || this.touching || this.mutating || !this.items.length || !this.container.clientHeight) return;
+        if (this.destroyed || this.touching || this.mutating || this.layoutLocked || !this.items.length || !this.container.clientHeight) return;
         const position = this.container.scrollTop / this.container.clientHeight;
         if (this.scrollTarget !== null && Math.abs(position - this.scrollTarget) > 0.015) return;
         this.scrollTarget = null;
@@ -678,6 +830,7 @@ SV.VideoFeed = class VideoFeed {
     }
 
     release(slot) {
+        if (slot === this.active && slot.resumePosition == null) this.remember(slot, true);
         if (this.hud && slot.card?.contains(this.hud)) this.viewport.append(this.hud);
         slot.generation++;
         slot.events?.abort();
@@ -703,6 +856,11 @@ SV.VideoFeed = class VideoFeed {
         clearTimeout(this.nextTimer);
         clearTimeout(this.clickTimer);
         clearTimeout(this.scrollTimer);
+        clearTimeout(this.layoutTimer);
+        clearTimeout(this.layoutResumeTimer);
+        this.layoutRecoveryUntil = 0;
+        this.layoutGeneration = (this.layoutGeneration || 0) + 1;
+        this.layoutLocked = false;
         if (this.hud) this.viewport.append(this.hud);
         for (const slot of this.slots) this.release(slot);
         this.active = null;

@@ -9,8 +9,11 @@ const fichiers = require("node:fs/promises");
 const { randomUUID, createHash } = require("node:crypto");
 
 const db = require("./config/db");
-const { traiterVideo } = require("./services/videoProcessor");
+const { traiterVideo, analyserVideo } = require("./services/videoProcessor");
+const { creerFileTraitement } = require("./services/processingQueue");
 const { initialiserSocial, enrichirVideos, creerSocial } = require("./services/social");
+const { creerUploads } = require("./services/resumableUploads");
+const { creerPhotoPosts } = require("./services/photoPosts");
 
 const app = express();
 
@@ -27,8 +30,10 @@ const videosDir = path.join(
 const originauxDir = path.join(
     __dirname, "storage", "originaux"
 );
+const sonsDir = path.join(__dirname, "storage", "sounds");
 
 fs.mkdirSync(originauxDir, { recursive: true });
+fs.mkdirSync(sonsDir, { recursive: true });
 
 // Créer les dossiers si nécessaire
 fs.mkdirSync(temporaires, { recursive: true });
@@ -75,6 +80,7 @@ app.use("/hls", express.static(videosDir, {
         }
     }
 }));
+app.use("/sounds", express.static(sonsDir, { fallthrough: false, index: false }));
 
 // Calculer le SHA-256 sans charger tout le MP4 en mémoire
 async function calculerSHA256(chemin) {
@@ -172,7 +178,8 @@ app.get("/api/videos", async (req, res) => {
                 duree_secondes AS duree,
                 largeur,
                 hauteur,
-                date_ajout
+                date_ajout,
+                media_type, photo_count, photo_interval_seconds, audio_title
             FROM public.videos
             WHERE statut = 'prete'
             ORDER BY date_ajout DESC
@@ -216,7 +223,7 @@ app.get("/api/videos/:id", async (req, res) => {
                 largeur,
                 hauteur,
                 message_erreur AS erreur,
-                date_ajout
+                date_ajout, media_type, photo_count, photo_interval_seconds, audio_title
             FROM public.videos
             WHERE id = $1
         `, [id]);
@@ -239,11 +246,8 @@ app.get("/api/videos/:id", async (req, res) => {
     }
 });
 
-// Une seule conversion à la fois dans ce prototype
-let fileTraitement = Promise.resolve();
-
 // Conversion automatique d'une vidéo enregistrée
-async function convertirVideo(id, cheminSource) {
+async function convertirVideo(id, cheminSource, analyse) {
 
     const dossierSortie = path.join(videosDir, id);
 
@@ -264,7 +268,8 @@ async function convertirVideo(id, cheminSource) {
        
 const infos = await traiterVideo(
     cheminSource,
-    dossierSortie
+    dossierSortie,
+    analyse
 );
 
 // Vérifier que la playlist principale existe
@@ -353,6 +358,25 @@ const cheminHLS = `/hls/${id}/master.m3u8`;
     }
 }
 
+// Les deux méthodes d'envoi partagent la même file et la même limite FFmpeg.
+const ajouterEnvoiEnFile = creerFileTraitement({
+    analyser: analyserVideo,
+    traiter: convertirVideo,
+    onError: error => console.error("Erreur de la file :", error)
+});
+
+app.use("/api/photo-posts", creerPhotoPosts({
+    db,
+    temporaires,
+    originauxDir,
+    sonsDir,
+    enqueue: ajouterEnvoiEnFile,
+    analyser: analyserVideo
+}));
+
+const uploadsReprenables = creerUploads({ db, temporaires, originauxDir, enqueue: ajouterEnvoiEnFile });
+app.use("/api/uploads", uploadsReprenables);
+
 // Recevoir une vidéo et lancer son traitement
 app.post(
     "/api/videos",
@@ -416,17 +440,7 @@ app.post(
 
 
             // Ajouter à la file de traitement
-            fileTraitement = fileTraitement
-                .then(() => convertirVideo(
-                    id,
-                    cheminOriginal
-                ))
-                .catch(erreur => {
-                    console.error(
-                        "Erreur de la file :",
-                        erreur
-                    );
-                });
+            ajouterEnvoiEnFile(id, cheminOriginal);
 
             // Réponse immédiate au formulaire
             res.status(202).json({
@@ -478,16 +492,20 @@ async function demarrer() {
         await db.query("SELECT 1");
         await initialiserSocial(db);
 
-        // Les tâches interrompues ne redémarrent pas
-        // automatiquement dans ce premier prototype.
+        // Distinguer les travaux en attente des encodages interrompus. Un
+        // processus FFmpeg peut survivre à un arrêt brutal de Node sur Windows :
+        // on ne redémarre donc pas automatiquement un encodage déjà commencé.
         await db.query(`
             UPDATE public.videos
             SET statut = 'erreur',
-                message_erreur =
-                    'Traitement interrompu par le serveur.',
+                message_erreur = CASE WHEN statut = 'en_attente'
+                    THEN 'Mise en attente interrompue par le serveur.'
+                    ELSE 'Traitement interrompu par le serveur.' END,
                 date_modification = NOW()
             WHERE statut IN ('en_attente', 'en_cours')
         `);
+
+        await uploadsReprenables.recover();
 
 
 return app.listen(PORT, "0.0.0.0", () => {

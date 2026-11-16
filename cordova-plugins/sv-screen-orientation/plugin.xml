@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
+        xmlns:android="http://schemas.android.com/apk/res/android"
+        id="cordova-plugin-sv-screen-orientation" version="1.0.0">
+    <name>StreamingVideo Screen Orientation</name>
+    <description>Permet de mettre le lecteur en paysage et de restaurer son orientation Android précédente.</description>
+    <js-module src="www/orientation.js" name="SVScreenOrientation">
+        <clobbers target="cordova.plugins.SVScreenOrientation" />
+    </js-module>
+    <platform name="android">
+        <config-file target="res/xml/config.xml" parent="/*">
+            <feature name="SVScreenOrientation">
+                <param name="android-package" value="com.streamingvideo.orientation.SVScreenOrientation" />
+            </feature>
+        </config-file>
+        <source-file src="src/android/SVScreenOrientation.java" target-dir="src/com/streamingvideo/orientation" />
+    </platform>
+</plugin>

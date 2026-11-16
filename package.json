@@ -7,7 +7,9 @@
   "scripts": {
     "start": "npm --prefix backend start",
     "test": "npm --prefix backend test",
-    "test:browser": "node scripts/browser-check.js"
+    "test:browser": "node scripts/browser-check.js",
+    "test:upload": "node --test scripts/test-resumable.js",
+    "test:upload:browser": "node scripts/test-resumable-browser.js"
   },
   "keywords": [
     "ecosystem:cordova"
@@ -27,7 +29,9 @@
     "plugins": {
       "cordova-plugin-android-permissions": {},
       "cordova-plugin-camera-preview": {},
-      "cordova-plugin-file": {}
+      "cordova-plugin-file": {},
+      "cordova-plugin-sv-screen-orientation": {},
+      "cordova-plugin-sv-video-picker": {}
     }
   },
   "dependencies": {
@@ -40,6 +44,8 @@
     "bplist-parser": "^0.3.2",
     "braces": "^3.0.3",
     "cordova-common": "^6.0.0",
+    "cordova-plugin-sv-screen-orientation": "file:cordova-plugins/sv-screen-orientation",
+    "cordova-plugin-sv-video-picker": "file:cordova-plugins/sv-video-picker",
     "cross-spawn": "^7.0.6",
     "dedent": "^1.7.2",
     "elementtree": "^0.1.7",

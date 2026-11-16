@@ -7,8 +7,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const API_ORIGINE = SV.origin;
     let catalogue = [], catalogueComplet = [], indexActuel = 0, filtre = "all";
     let sonActif = false, defilementAutomatique = true, requeteCatalogue = 0;
-    let minuterieFin, minuterieToast, rechercheTimer, attenteCatalogue, attenteLongueCatalogue;
+    let minuterieFin, minuterieToast, minuterieConseil, rechercheTimer, attenteCatalogue, attenteLongueCatalogue;
     let catalogueEnCours = false, catalogueErreur = false, cordovaSuspendu = false;
+    let videoPleinEcranId = null;
     try { defilementAutomatique = localStorage.getItem("defilementAutomatique") !== "false"; } catch {}
     $("defilementAuto").checked = defilementAutomatique;
 
@@ -28,6 +29,13 @@ document.addEventListener("DOMContentLoaded", () => {
         $("toast").hidden = false;
         minuterieToast = setTimeout(() => { $("toast").hidden = true; }, 3600);
     }
+    function afficherConseilPleinEcran(texte) {
+        clearTimeout(minuterieConseil);
+        $("conseilPleinEcran").textContent = texte;
+        $("conseilPleinEcran").hidden = false;
+        minuterieConseil = setTimeout(() => { $("conseilPleinEcran").hidden = true; }, 3600);
+    }
+    const pleinEcran = new SVFullscreenPlayer({ scene, button: $("pleinEcran"), icon, toast: afficherConseilPleinEcran });
     document.addEventListener("stream:toast", event => afficherToast(event.detail));
     function tempsEcoule(value) {
         const timestamp = new Date(value).getTime();
@@ -128,7 +136,8 @@ document.addEventListener("DOMContentLoaded", () => {
         $("titreVideo").textContent = titre(item);
         $("auteurVideo").textContent = item.author || "La communauté";
         $("avatarAuteur").textContent = initials(item.author || "Streaming Video");
-        $("audioAuteur").textContent = "· " + (item.author || "StreamingVideo");
+        $("audioAuteur").textContent = item.audio_title ? "· " + item.audio_title : "· " + (item.author || "StreamingVideo");
+        $("audioLabel").firstChild.textContent = item.audio_title ? "Son choisi " : "Son original ";
         $("descriptionVideo").textContent = item.description || "";
         $("dureeVideo").textContent = duration(item.duree);
         afficherDateAjout();
@@ -147,6 +156,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const quality = element("span", "quality-badge");
         quality.append(element("i", "live-dot"), document.createTextNode("Auto"));
         const tools = element("div", "player-tools");
+        if (item.media_type === "photo") tools.append(element("span", "photo-counter", "1/" + (Number(item.photo_count) || 1)));
         for (const name of [sonActif ? "volume" : "muted", "more"]) {
             const tool = element("span", "round-button"); tool.append(icon(name)); tools.append(tool);
         }
@@ -172,7 +182,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const audio = element("div", "audio-line");
         const bars = element("span", "sound-bars");
         for (let i = 0; i < 4; i++) bars.append(element("i"));
-        audio.append(bars, element("span", "", "Son original · " + (item.author || "StreamingVideo")));
+        audio.append(bars, element("span", "", item.audio_title ? "Son choisi · " + item.audio_title : "Son original · " + (item.author || "StreamingVideo")));
         info.append(author, element("strong", "", titre(item)), element("p", "", item.description || ""), meta, audio);
         const playback = element("div", "playback-meta");
         const hint = element("span", "swipe-hint"); hint.append(icon("up"), document.createTextNode("Glisse pour découvrir"));
@@ -185,12 +195,20 @@ document.addEventListener("DOMContentLoaded", () => {
         onCard: apercuPublication,
         onSelect(item, index) {
             indexActuel = index;
+            if (videoPleinEcranId && videoPleinEcranId !== item.id) pleinEcran.close();
+            videoPleinEcranId = item.id;
+            pleinEcran.setDuration(item.duree);
             masquerFinFil(); fermerMenu(); message(""); indicationReseau();
             scene.classList.add("has-video");
             metadonnees(item); navigation(); recommandations();
             $("progressionLecture").style.width = "0%";
             $("positionLecture").value = "0";
             $("tempsLecture").textContent = "0:00 / " + duration(item.duree);
+            const photo = item.media_type === "photo" && Number(item.photo_count) > 0;
+            $("compteurPhotos").hidden = !photo;
+            $("photoPrecedente").hidden = !photo;
+            $("photoSuivante").hidden = !photo;
+            if (photo) $("compteurPhotos").textContent = "1/" + item.photo_count;
             $("qualiteActuelle").textContent = "Auto";
             emit("video", item);
             if (/^https?:$/.test(location.protocol)) {
@@ -205,7 +223,14 @@ document.addEventListener("DOMContentLoaded", () => {
         onTap: basculerLecture,
         onDoubleTap() { emit("doubletap"); },
         onProgress(current, total) {
+            const item = catalogue[indexActuel];
+            if (item?.media_type === "photo" && Number(item.photo_count) > 0) {
+                const interval = Number(item.photo_interval_seconds) || 3;
+                const slide = Math.min(Number(item.photo_count), Math.floor(current / interval) + 1);
+                $("compteurPhotos").textContent = slide + "/" + item.photo_count;
+            }
             if (!Number.isFinite(total) || total <= 0) return;
+            pleinEcran.setDuration(total);
             const fraction = current / total;
             $("progressionLecture").style.width = fraction * 100 + "%";
             $("positionLecture").value = String(Math.round(fraction * 1000));
@@ -216,6 +241,11 @@ document.addEventListener("DOMContentLoaded", () => {
             else lecteur.restart();
         }
     });
+
+    // Le même lecteur et sa barre de progression servent aux gestes latéraux.
+    new SVSeekGestures({ scene, feed: lecteur });
+    $("photoPrecedente").addEventListener("click", () => lecteur.navigatePhoto(-1));
+    $("photoSuivante").addEventListener("click", () => lecteur.navigatePhoto(1));
 
     function chargerVideo(index, behavior = "smooth") {
         if (index < 0 || index >= catalogue.length) return;
@@ -237,6 +267,9 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         document.title = "StreamingVideo · " + ({ all: "Pour toi", trending: "Explorer", liked: "Vidéos aimées", saved: "Mes favoris" }[filtre]);
         if (!catalogue.length) {
+            videoPleinEcranId = null;
+            pleinEcran.close();
+            pleinEcran.setDuration(0);
             lecteur.clear(); scene.classList.remove("has-video");
             indicationReseau(); masquerFinFil(); emit("video", null);
             $("titreVideo").textContent = query ? "Une autre envie ?" : "Les histoires t’attendent.";
@@ -334,10 +367,32 @@ document.addEventListener("DOMContentLoaded", () => {
         $("actualiserFil").disabled = true;
         try { await chargerCatalogue(true); } finally { $("actualiserFil").disabled = false; }
     });
-    function ouvrirAjout() { location.href = "upload.html"; }
+    function ouvrirAjout() {
+        pleinEcran.close();
+        if (window.SVStudio) window.SVStudio.open();
+        else location.href = "upload.html";
+    }
     $("ajouterVideo").addEventListener("click", ouvrirAjout);
     $("publierFin").addEventListener("click", ouvrirAjout);
     document.querySelectorAll("[data-publish]").forEach(button => button.addEventListener("click", ouvrirAjout));
+    document.addEventListener("sv:show-video", event => {
+        const id = event.detail?.id;
+        if (!id) return;
+        filtre = "all";
+        $("recherche").value = "";
+        // Une publication peut venir d'être ajoutée au catalogue pendant la copie.
+        api("/videos").then(items => {
+            if (!Array.isArray(items)) return;
+            catalogueComplet = items.filter(item => item && item.statut === "prete" && item.url_hls)
+                .sort((a, b) => new Date(b.date_ajout) - new Date(a.date_ajout));
+            appliquerFil(id);
+        }).catch(error => message(error.message, true));
+    });
+    document.addEventListener("sv:go-home", () => {
+        filtre = "all";
+        $("recherche").value = "";
+        appliquerFil();
+    });
     $("defilementAuto").addEventListener("change", event => {
         defilementAutomatique = event.target.checked;
         try { localStorage.setItem("defilementAutomatique", String(defilementAutomatique)); } catch {}
@@ -353,9 +408,52 @@ document.addEventListener("DOMContentLoaded", () => {
         fermerMenu(); const item = catalogue[indexActuel];
         if (item) afficherToast(duration(item.duree) + " · " + tempsEcoule(item.date_ajout));
     });
+    function afficherHistorique() {
+        const entries = lecteur.historyItems();
+        const list = $("historiqueListe");
+        list.replaceChildren();
+        $("effacerHistorique").disabled = entries.length === 0;
+        if (!entries.length) {
+            list.append(element("p", "historique-vide", "Les vidéos regardées pendant cette session apparaîtront ici."));
+            return;
+        }
+        for (const entry of entries) {
+            const item = catalogueComplet.find(video => video.id === entry.item?.id);
+            const row = element("button", "historique-item");
+            row.type = "button";
+            row.disabled = !item;
+            const text = element("span", "historique-texte");
+            text.append(element("strong", "", String(item?.titre || entry.item?.titre || "Vidéo")));
+            const progress = entry.finished ? "Vidéo terminée · revoir" : "Reprendre à " + duration(entry.position) +
+                (entry.duration > 0 ? " / " + duration(entry.duration) : "");
+            text.append(element("small", "", item ? progress : "Vidéo indisponible"));
+            row.append(text, icon("play"));
+            if (item) row.addEventListener("click", () => {
+                $("historiqueDialog").close();
+                filtre = "all";
+                $("recherche").value = "";
+                appliquerFil(item.id);
+            });
+            list.append(row);
+        }
+    }
+    $("ouvrirHistorique").addEventListener("click", () => {
+        fermerMenu();
+        lecteur.remember(lecteur.active, true);
+        afficherHistorique();
+        const dialog = $("historiqueDialog");
+        if (dialog.open) return;
+        const alreadyOpen = !!document.querySelector("dialog[open]");
+        dialog.showModal();
+        if (!alreadyOpen) emit("modal", true);
+    });
+    $("effacerHistorique").addEventListener("click", () => {
+        lecteur.clearHistory();
+        afficherHistorique();
+    });
     $("positionLecture").addEventListener("input", event => lecteur.seek(Number(event.target.value) / 1000));
     function actualiserSuspension() {
-        lecteur.setSuspended(document.hidden || cordovaSuspendu || !!document.querySelector("dialog[open]"));
+        lecteur.setSuspended(document.hidden || cordovaSuspendu || document.body.classList.contains("studio-ouvert") || !!document.querySelector("dialog[open]"));
     }
     document.addEventListener("stream:modal", actualiserSuspension);
     document.addEventListener("visibilitychange", actualiserSuspension);
@@ -366,7 +464,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (catalogueEnCours || catalogueErreur) indicationReseau("offline", "Connexion interrompue. Chargement…");
     });
     document.addEventListener("keydown", event => {
-        if (event.key === "Escape") { fermerMenu(); return; }
+        if (event.key === "Escape") { if (pleinEcran.active) pleinEcran.close(); fermerMenu(); return; }
         if (event.target instanceof Element && event.target.closest("button,a,input,select,textarea,dialog")) return;
         if (document.querySelector("dialog[open]")) return;
         if (event.key === "/") { event.preventDefault(); $("recherche").focus(); }

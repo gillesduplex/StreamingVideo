@@ -1,0 +1,68 @@
+.publication-notice {
+    position: fixed;
+    z-index: 10000;
+    top: max(16px, env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(420px, calc(100% - 32px));
+    padding: 16px 18px;
+    color: #fff;
+    background: #202024;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 16px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .35);
+    font: 14px/1.4 system-ui, sans-serif;
+}
+.publication-notice strong { color: #fff; font-size: 15px; }
+.publication-notice p { margin: 5px 0 12px; color: #dedee3; overflow-wrap: anywhere; }
+.publication-notice-actions { display: flex; align-items: center; gap: 18px; }
+.publication-notice-actions a, .publication-notice-actions button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #ff7866;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+}
+.publication-notice-actions button { color: #d4d4db; }
+.upload-background-status {
+    position: fixed;
+    z-index: 4000;
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(16px, env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+    width: min(340px, calc(100% - 32px));
+    padding: 13px 15px;
+    color: #fff;
+    text-align: left;
+    background: #202024;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 14px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .35);
+    font: 14px/1.35 system-ui, sans-serif;
+    cursor: pointer;
+}
+.upload-background-copy { display: grid; gap: 3px; min-width: 0; }
+.upload-background-status strong { color: #fff; font-size: 14px; }
+.upload-background-status small {
+    color: #dedee3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.upload-background-status progress {
+    width: 100%;
+    height: 5px;
+    accent-color: #ff7866;
+}
+@media (max-width: 600px) {
+    .upload-background-status {
+        right: 12px;
+        bottom: calc(76px + env(safe-area-inset-bottom));
+        width: min(340px, calc(100% - 24px));
+    }
+}

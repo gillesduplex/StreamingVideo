@@ -1,0 +1,8 @@
+{
+  "name": "cordova-plugin-sv-video-picker",
+  "version": "1.0.0",
+  "description": "Sélection Android de vidéos avec accès persistant",
+  "cordova": { "id": "cordova-plugin-sv-video-picker", "platforms": ["android"] },
+  "keywords": ["cordova", "android", "video", "saf"],
+  "license": "Apache-2.0"
+}

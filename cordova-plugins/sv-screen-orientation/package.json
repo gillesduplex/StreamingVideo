@@ -1,0 +1,8 @@
+{
+  "name": "cordova-plugin-sv-screen-orientation",
+  "version": "1.0.0",
+  "description": "Orientation Android du lecteur StreamingVideo",
+  "cordova": { "id": "cordova-plugin-sv-screen-orientation", "platforms": ["android"] },
+  "keywords": ["cordova", "cordova-android", "ecosystem:cordova"],
+  "license": "MIT"
+}

@@ -46,8 +46,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (commentVideoId === current?.id) $("totalCommentaires").textContent = number(current.comments);
     }
     function updateSocial(stats) {
-        emit("social", stats);
         if (current?.id === stats.id) { Object.assign(current, stats); renderSocial(); }
+        emit("social", stats);
     }
     async function refreshSocial() {
         if (!current || document.hidden) return;
@@ -66,22 +66,43 @@ document.addEventListener("DOMContentLoaded", () => {
         const heart = $("coeurAnimation"); heart.classList.remove("animate");
         void heart.offsetWidth; heart.classList.add("animate");
     }
+    function adjustProfileLikes(delta) {
+        if (!profile || !Number.isFinite(Number(profile.likes))) return;
+        renderProfile({ likes: Math.max(0, Number(profile.likes) + delta) });
+    }
     async function toggle(resource, forceLike = false) {
         if (!current) return;
         const item = current, key = resource + ":" + item.id;
         if (pending.has(key) || (forceLike && item.liked)) return;
         const field = resource === "like" ? "liked" : "saved", active = !item[field];
         pending.add(key); revisions.set(item.id, (revisions.get(item.id) || 0) + 1);
-        // Retour visuel immédiat, puis confirmation par le serveur.
+        // Mettre à jour le J’aime et son compteur avant d’attendre le serveur.
         const button = $(resource === "like" ? "aimer" : "enregistrerVideo");
-        button.classList.toggle(resource === "like" ? "aime" : "saved", active);
-        button.setAttribute("aria-pressed", String(active)); button.disabled = true;
-        if (resource === "like" && active) { heartAnimation(); $("nombreLikes").textContent = number(item.likes + 1); }
+        const previousLikes = Number(item.likes) || 0;
+        if (resource === "like") {
+            item.liked = active;
+            item.likes = Math.max(0, previousLikes + (active ? 1 : -1));
+            adjustProfileLikes(active ? 1 : -1);
+            updateSocial({ ...item });
+            if (active) heartAnimation();
+        } else {
+            button.classList.toggle("saved", active);
+            button.setAttribute("aria-pressed", String(active));
+            button.disabled = true;
+        }
         try {
             const stats = await api("/videos/" + item.id + "/" + resource, { method: active ? "PUT" : "DELETE" });
             updateSocial(stats);
             if (resource === "save") toast(active ? "Ajoutée à tes favoris" : "Retirée de tes favoris");
-        } catch (error) { toast(error.message); }
+        } catch (error) {
+            if (resource === "like") {
+                item.liked = !active;
+                item.likes = previousLikes;
+                adjustProfileLikes(active ? -1 : 1);
+                updateSocial({ ...item });
+            }
+            toast(error.message);
+        }
         finally { pending.delete(key); renderSocial(); }
     }
     $("aimer").addEventListener("click", () => toggle("like"));

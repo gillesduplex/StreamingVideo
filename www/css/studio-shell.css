@@ -1,0 +1,15 @@
+.studio-frame {
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #101014;
+}
+.studio-frame[hidden] { display: none; }
+
+/* CameraPreview est placée derrière toute la WebView, pas seulement l'iframe. */
+html.sv-studio-camera, html.sv-studio-camera body,
+html.sv-studio-camera .studio-frame { background: transparent !important; }
+html.sv-studio-camera body > :not(.studio-frame) { visibility: hidden !important; }
