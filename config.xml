@@ -13,8 +13,11 @@
 
     <!-- Application locale en HTTP pour le développement -->
     <preference name="scheme" value="http" />
+    <preference name="AndroidWindowSplashScreenAnimatedIcon" value="www/img/logo.png" />
+    <preference name="AndroidWindowSplashScreenBackground" value="#171622" />
 
     <platform name="android">
+        <icon src="www/img/logo.png" />
         <edit-config
             file="app/src/main/AndroidManifest.xml"
             mode="merge"

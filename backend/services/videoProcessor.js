@@ -2,6 +2,7 @@
 const { spawn } = require("node:child_process");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const os = require("node:os");
 
 const ffmpegPath = require("ffmpeg-static");
 const ffprobePath = require("ffprobe-static").path;
@@ -40,17 +41,18 @@ function executer(programme, args, options = {}) {
     });
 }
 
-// Limiter la fréquence d'images à 30 FPS
-function calculerFPS(valeur) {
+function lireFPS(valeur) {
     const [n, d] = String(valeur || "")
         .split("/")
         .map(Number);
 
     const fps = d ? n / d : n;
+    return Number.isFinite(fps) && fps > 0 ? fps : null;
+}
 
-    return Number.isFinite(fps) && fps > 0
-        ? Math.min(fps, 30)
-        : 30;
+// Limiter la fréquence de sortie à 30 FPS
+function calculerFPS(valeur) {
+    return Math.min(lireFPS(valeur) || 30, 30);
 }
 
 // Choisir les qualités sans agrandir la source
@@ -164,10 +166,27 @@ async function mesurerDebits(dossier) {
     };
 }
 
-// Fonction principale de conversion
-async function traiterVideo(fichierSource, dossierSortie) {
+// Une limite partagée entre toutes les vidéos évite que leurs qualités
+// respectives multiplient sans contrôle le nombre de processus FFmpeg.
+const capacite = os.availableParallelism ? os.availableParallelism() : os.cpus().length;
+const limiteEncodages = capacite >= 4 ? 2 : 1;
+let encodagesActifs = 0;
+const encodagesAttente = [];
+async function avecPlaceFFmpeg(travail) {
+    if (encodagesActifs >= limiteEncodages) {
+        await new Promise(resolve => encodagesAttente.push(resolve));
+    } else {
+        encodagesActifs++;
+    }
+    try { return await travail(); }
+    finally {
+        const suivant = encodagesAttente.shift();
+        if (suivant) suivant(); // La place est directement transmise au suivant.
+        else encodagesActifs--;
+    }
+}
 
-    // 1. Analyser la vidéo originale
+async function analyserVideo(fichierSource) {
     const resultat = await executer(ffprobePath, [
         "-v", "error",
         "-show_entries",
@@ -177,6 +196,8 @@ async function traiterVideo(fichierSource, dossierSortie) {
     ]);
 
     const infos = JSON.parse(resultat);
+
+    if (!Array.isArray(infos.streams)) throw new Error("Vidéo originale invalide.");
 
     const flux = infos.streams.find(
         s => s.codec_type === "video"
@@ -202,6 +223,12 @@ async function traiterVideo(fichierSource, dossierSortie) {
     }
 
     const fps = calculerFPS(flux.avg_frame_rate);
+    return { largeur, hauteur, duree, fps, fpsSource: lireFPS(flux.avg_frame_rate), avecAudio };
+}
+
+// Fonction principale de conversion
+async function traiterVideo(fichierSource, dossierSortie, analyse) {
+    const { largeur, hauteur, duree, fps, avecAudio } = analyse || await analyserVideo(fichierSource);
 
     const qualites = choisirQualites(
         Math.min(largeur, hauteur)
@@ -220,8 +247,8 @@ async function traiterVideo(fichierSource, dossierSortie) {
 
     const qualitesGenerees = [];
 
-    // 3. Encoder chaque qualité séparément
-    for (const q of qualites) {
+    // Au plus deux conversions simultanées pour limiter la charge du serveur.
+    async function encoderQualite(q) {
 
         const echelle =
             q.court / Math.min(largeur, hauteur);
@@ -252,7 +279,7 @@ async function traiterVideo(fichierSource, dossierSortie) {
 
         // Chaque conversion travaille dans
         // son propre dossier de qualité.
-        await executer(ffmpegPath, [
+        await avecPlaceFFmpeg(() => executer(ffmpegPath, [
             "-hide_banner",
             "-loglevel", "error",
             "-y",
@@ -295,7 +322,7 @@ async function traiterVideo(fichierSource, dossierSortie) {
 
         ], {
             cwd: dossierQualite
-        });
+        }));
 
         // 4. Vérifier les fichiers obligatoires
         await Promise.all([
@@ -317,7 +344,7 @@ async function traiterVideo(fichierSource, dossierSortie) {
             : "avc1.4d402a";
 
         // Ajouter la qualité à master.m3u8
-        master +=
+        const entree =
             `#EXT-X-STREAM-INF:` +
             `BANDWIDTH=${debits.pic},` +
             `AVERAGE-BANDWIDTH=${debits.moyenne},` +
@@ -326,11 +353,24 @@ async function traiterVideo(fichierSource, dossierSortie) {
             `CODECS="${codecs}"\n` +
             `${q.nom}/index.m3u8\n`;
 
-        qualitesGenerees.push({
+        return { entree, qualite: {
             nom: q.nom,
             largeur: w,
             hauteur: h
-        });
+        } };
+    }
+
+    // Attendre tous les processus d'un groupe, même en cas d'erreur, avant
+    // que l'appelant ne nettoie le dossier. Garder l'ordre initial des qualités.
+    const simultanees = limiteEncodages;
+    for (let i = 0; i < qualites.length; i += simultanees) {
+        const resultats = await Promise.allSettled(qualites.slice(i, i + simultanees).map(encoderQualite));
+        const echec = resultats.find(resultat => resultat.status === "rejected");
+        if (echec) throw echec.reason;
+        for (const resultat of resultats) {
+            master += resultat.value.entree;
+            qualitesGenerees.push(resultat.value.qualite);
+        }
     }
 
     // 5. Publier la playlist après validation
@@ -344,11 +384,11 @@ async function traiterVideo(fichierSource, dossierSortie) {
 
     let affiche = false;
     try {
-        await executer(ffmpegPath, [
+        await avecPlaceFFmpeg(() => executer(ffmpegPath, [
             "-hide_banner", "-loglevel", "error", "-y", "-ss", "0",
             "-i", fichierSource, "-frames:v", "1", "-vf", "scale=480:-2",
             "-q:v", "4", path.join(dossierSortie, "affiche.jpg")
-        ]);
+        ]));
         affiche = true;
     } catch (erreur) {
         console.warn("Miniature indisponible :", erreur.message);
@@ -365,4 +405,4 @@ async function traiterVideo(fichierSource, dossierSortie) {
     };
 }
 
-module.exports = { traiterVideo };
+module.exports = { traiterVideo, analyserVideo, avecPlaceFFmpeg };

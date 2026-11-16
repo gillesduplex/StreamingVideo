@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
+        id="cordova-plugin-sv-video-picker" version="1.0.0">
+    <name>StreamingVideo Persistent Video Picker</name>
+    <description>Sélectionne des vidéos via le sélecteur Android et conserve le droit de lecture.</description>
+    <js-module src="www/picker.js" name="SVVideoPicker">
+        <clobbers target="cordova.plugins.SVVideoPicker" />
+    </js-module>
+    <platform name="android">
+        <config-file target="res/xml/config.xml" parent="/*">
+            <feature name="SVVideoPicker">
+                <param name="android-package" value="com.streamingvideo.picker.SVVideoPicker" />
+            </feature>
+        </config-file>
+        <source-file src="src/android/SVVideoPicker.java" target-dir="src/com/streamingvideo/picker" />
+    </platform>
+</plugin>

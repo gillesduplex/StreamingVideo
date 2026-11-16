@@ -14,9 +14,9 @@ async function initialiserSocial(db) {
         SELECT (SELECT COUNT(*) FROM information_schema.tables
             WHERE table_schema = 'public' AND table_name = ANY($1::text[])) = 6
             AND (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public'
-                AND table_name = 'videos' AND column_name = ANY($2::text[])) = 3 AS ready
+                AND table_name = 'videos' AND column_name = ANY($2::text[])) = 7 AS ready
     `, [["stream_profiles", "video_likes", "video_saves", "video_shares", "video_comments", "comment_likes"],
-        ["auteur_id", "description", "chemin_affiche"]]);
+        ["auteur_id", "description", "chemin_affiche", "media_type", "photo_count", "photo_interval_seconds", "audio_title"]]);
     if (ready.rows[0].ready) return;
     const sql = await fs.readFile(path.join(__dirname, "../migrations/001-social.sql"), "utf8");
     // Une connexion unique garde toute la migration dans la même transaction.

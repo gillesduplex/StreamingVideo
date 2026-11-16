@@ -9,10 +9,12 @@
     <title>StreamingVideo · Pour toi</title>
     <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/publication-notifications.css">
+    <link rel="stylesheet" href="css/studio-shell.css">
 </head>
 <body>
     <svg class="svg-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <symbol id="i-mark" viewBox="0 0 32 32"><path d="M8 5.5a3 3 0 0 1 4.5-2.6L28 12a4.6 4.6 0 0 1 0 8l-15.5 9.1A3 3 0 0 1 8 26.5Z" fill="currentColor" stroke="none"/><path d="m3 9 10 6-10 6" fill="none" stroke="#101014" stroke-width="4.5" stroke-linejoin="round"/></symbol>
+        <symbol id="i-mark" viewBox="0 0 40 40"><defs><linearGradient id="sv-mark-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff846e"/><stop offset="1" stop-color="#a273ff"/></linearGradient></defs><rect x="1" y="1" width="38" height="38" rx="11" fill="#171622" stroke="#fff" stroke-opacity=".12"/><path d="M17 9.5a2.3 2.3 0 0 0-3.5 2v17a2.3 2.3 0 0 0 3.5 2l13.2-8.5a2.4 2.4 0 0 0 0-4Z" fill="url(#sv-mark-gradient)"/><path d="M8.5 14.5c3 2.4 3 8.6 0 11" fill="none" stroke="#8e7cff" stroke-linecap="round" stroke-width="2.5"/><circle cx="31" cy="9" r="2" fill="#ffd166"/></symbol>
         <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></symbol>
         <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m16 8-2.5 5.5L8 16l2.5-5.5Z"/></symbol>
         <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.8 4.6a5.6 5.6 0 0 0-8 0L12 5.4l-.8-.8a5.6 5.6 0 0 0-8 8L12 22l8.8-9.4a5.6 5.6 0 0 0 0-8Z"/></symbol>
@@ -36,6 +38,8 @@
         <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7a9 9 0 1 0 1 9M20 2v6h-6"/></symbol>
         <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 2 2.5 7.5L22 12l-7.5 2.5L12 22l-2.5-7.5L2 12l7.5-2.5Z"/></symbol>
         <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+        <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H3v5M3 3l7 7M16 3h5v5m0-5-7 7M8 21H3v-5m0 5 7-7m6 7h5v-5m0 5-7-7"/></symbol>
+        <symbol id="i-collapse" viewBox="0 0 24 24"><path d="M3 8V3h5M3 3l7 7m11-2V3h-5m5 0-7 7M3 16v5h5m-5 0 7-7m6 7h5v-5m0 5-7-7"/></symbol>
     </svg>
     <aside class="sidebar" aria-label="Navigation principale">
         <a class="brand" href="index.html" aria-label="StreamingVideo, accueil"><span class="brand-icon"><svg class="icon"><use href="#i-mark"/></svg></span><span>streaming<span class="brand-light">video</span><span class="brand-dot">.</span></span></a>
@@ -65,9 +69,10 @@
                 <div class="player-shell">
                     <section class="scene" id="scene" aria-label="Lecteur vidéo">
                         <div id="filVideos" class="video-feed" role="region" aria-label="Vidéos, fais défiler pour découvrir" tabindex="0"></div>
+                        <div id="conseilPleinEcran" class="fullscreen-hint" role="status" aria-live="polite" hidden></div>
                         <div id="publicationCourante" class="publication-ui">
                         <div class="degrade"></div>
-                        <div class="en-tete"><span class="quality-badge"><i class="live-dot"></i><span id="qualiteActuelle">Auto</span></span><div class="player-tools"><button id="son" class="round-button" aria-label="Activer le son" aria-pressed="false"><svg class="icon"><use href="#i-muted"/></svg></button><button id="plus" class="round-button" aria-label="Options de lecture" aria-controls="menuPlus" aria-expanded="false"><svg class="icon"><use href="#i-more"/></svg></button></div></div>
+                        <div class="en-tete"><span class="quality-badge"><i class="live-dot"></i><span id="qualiteActuelle">Auto</span></span><div class="player-tools"><button id="photoPrecedente" class="photo-step" type="button" aria-label="Photo précédente" hidden>‹</button><span id="compteurPhotos" class="photo-counter" hidden>1/1</span><button id="photoSuivante" class="photo-step" type="button" aria-label="Photo suivante" hidden>›</button><button id="son" class="round-button" aria-label="Activer le son" aria-pressed="false"><svg class="icon"><use href="#i-muted"/></svg></button><button id="pleinEcran" class="round-button" aria-label="Passer en plein écran" aria-pressed="false" hidden><svg class="icon"><use href="#i-expand"/></svg></button><button id="plus" class="round-button" aria-label="Options de lecture" aria-controls="menuPlus" aria-expanded="false"><svg class="icon"><use href="#i-more"/></svg></button></div></div>
                         <div id="chargement" class="chargement" role="status" aria-live="polite" aria-atomic="true" hidden></div>
                         <div id="message" class="message" role="status" hidden></div>
                         <button id="reessayerFil" class="retry-feed" hidden><svg class="icon"><use href="#i-refresh"/></svg>Réessayer</button>
@@ -80,9 +85,9 @@
                             <button id="enregistrerVideo" class="action" aria-label="Enregistrer dans les favoris" aria-pressed="false" disabled><span class="action-icon"><svg class="icon"><use href="#i-bookmark"/></svg></span><small>Favoris</small></button>
                             <button id="partager" class="action" aria-label="Partager la vidéo" disabled><span class="action-icon"><svg class="icon"><use href="#i-share"/></svg></span><small id="nombrePartages">0</small></button>
                         </aside>
-                        <div id="menuPlus" class="menu-plus" hidden><strong>À ta façon</strong><button type="button" id="copierLien"><svg class="icon"><use href="#i-link"/></svg>Copier le lien</button><button type="button" id="informationsVideo"><svg class="icon"><use href="#i-play"/></svg>Informations vidéo</button><div class="reglage-qualite"><label for="choixQualite">Qualité de lecture</label><select id="choixQualite"><option value="-1">Automatique</option></select></div><label class="option-defilement" for="defilementAuto"><span><strong>Défilement automatique</strong><small>Passer à la vidéo suivante</small></span><input type="checkbox" id="defilementAuto" class="switch" checked></label></div>
+                        <div id="menuPlus" class="menu-plus" hidden><strong>À ta façon</strong><button type="button" id="copierLien"><svg class="icon"><use href="#i-link"/></svg>Copier le lien</button><button type="button" id="informationsVideo"><svg class="icon"><use href="#i-play"/></svg>Informations vidéo</button><button type="button" id="ouvrirHistorique"><svg class="icon"><use href="#i-refresh"/></svg>Historique de lecture</button><div class="reglage-qualite"><label for="choixQualite">Qualité de lecture</label><select id="choixQualite"><option value="-1">Automatique</option></select></div><label class="option-defilement" for="defilementAuto"><span><strong>Défilement automatique</strong><small>Passer à la vidéo suivante</small></span><input type="checkbox" id="defilementAuto" class="switch" checked></label></div>
                         <div id="finFil" class="fin-fil" role="status" hidden><button id="fermerFin" class="round-button close-end" aria-label="Fermer"><svg class="icon"><use href="#i-close"/></svg></button><span class="end-icon"><svg class="icon"><use href="#i-check"/></svg></span><strong>Tu as tout vu pour l’instant.</strong><p>De nouvelles histoires arrivent bientôt.</p><div class="fin-actions"><button id="actualiserFil" class="secondary-button">Actualiser</button><button id="publierFin" class="primary-button">À toi de publier</button></div></div>
-                        <div class="informations"><div class="author-line"><span id="auteurVideo">La communauté</span><span class="creator-label">CRÉATEUR</span></div><strong id="titreVideo">Les histoires commencent ici.</strong><p id="descriptionVideo"></p><div class="video-meta"><span id="dateAjout">Découvre les dernières vidéos</span><span class="meta-dot">·</span><span id="dureeVideo"></span></div><div class="audio-line"><span class="sound-bars"><i></i><i></i><i></i><i></i></span><span>Son original <span class="audio-author" id="audioAuteur">· StreamingVideo</span></span></div></div>
+                        <div class="informations"><div class="author-line"><span id="auteurVideo">La communauté</span><span class="creator-label">CRÉATEUR</span></div><strong id="titreVideo">Les histoires commencent ici.</strong><p id="descriptionVideo"></p><div class="video-meta"><span id="dateAjout">Découvre les dernières vidéos</span><span class="meta-dot">·</span><span id="dureeVideo"></span></div><div class="audio-line"><span class="sound-bars"><i></i><i></i><i></i><i></i></span><span id="audioLabel">Son original <span class="audio-author" id="audioAuteur">· StreamingVideo</span></span></div></div>
                         <div class="playback-meta"><span class="swipe-hint"><svg class="icon"><use href="#i-up"/></svg> Glisse pour découvrir</span><span id="tempsLecture">0:00 / 0:00</span></div>
                         <div class="progression"><div id="progressionLecture"></div><input id="positionLecture" type="range" min="0" max="1000" value="0" aria-label="Position de lecture"></div>
                         </div>
@@ -100,6 +105,12 @@
         </div>
     </main>
     <nav class="mobile-nav" aria-label="Navigation mobile"><button class="active" data-feed="all" aria-current="page"><svg class="icon"><use href="#i-home"/></svg><span>Accueil</span></button><button data-feed="trending"><svg class="icon"><use href="#i-compass"/></svg><span>Explorer</span></button><button class="mobile-create" data-publish aria-label="Créer une vidéo"><span><svg class="icon"><use href="#i-plus"/></svg></span></button><button data-feed="saved"><svg class="icon"><use href="#i-bookmark"/></svg><span>Favoris</span></button><button data-profile><svg class="icon"><use href="#i-user"/></svg><span>Mon espace</span></button></nav>
+    <dialog id="historiqueDialog" class="sheet historique-dialog" aria-labelledby="historiqueTitre">
+        <header class="sheet-header"><div><span class="eyebrow coral">CONTINUER À REGARDER</span><h2 id="historiqueTitre">Ton historique</h2></div><button class="round-button" data-close="historiqueDialog" aria-label="Fermer l’historique"><svg class="icon"><use href="#i-close"/></svg></button></header>
+        <p class="historique-note">Tes positions restent disponibles pendant cette session. La vidéo en cours peut réapparaître après un effacement.</p>
+        <div id="historiqueListe" class="historique-liste" aria-live="polite"></div>
+        <div class="historique-pied"><button id="effacerHistorique" class="secondary-button" type="button">Effacer l’historique</button></div>
+    </dialog>
     <dialog id="commentairesDialog" class="sheet comment-dialog" aria-labelledby="commentairesTitre"><div class="sheet-handle"></div><header class="sheet-header"><div><span class="eyebrow coral">LA CONVERSATION</span><h2 id="commentairesTitre">Commentaires <span id="totalCommentaires" class="count-badge">0</span></h2></div><button class="round-button" data-close="commentairesDialog" aria-label="Fermer les commentaires"><svg class="icon"><use href="#i-close"/></svg></button></header><div class="comments-scroll" id="commentairesListe" aria-live="polite"></div><form id="commentaireForm" class="comment-composer"><div id="reponseBandeau" class="reply-banner" hidden><span>En réponse à <strong id="reponsePseudo"></strong></span><button type="button" id="annulerReponse" aria-label="Annuler la réponse"><svg class="icon"><use href="#i-close"/></svg></button></div><div class="composer-identity">Tu commentes en tant que <button type="button" class="my-name" data-profile>Visiteur</button></div><div class="composer-input"><span class="avatar my-avatar">V</span><textarea id="texteCommentaire" placeholder="Ajoute ton grain de sel…" aria-label="Ton commentaire" rows="1" maxlength="1000" required></textarea><button id="envoyerCommentaire" type="submit" aria-label="Publier le commentaire" disabled><svg class="icon"><use href="#i-send"/></svg></button></div><div class="composer-footer"><span id="erreurCommentaire" role="status">Un peu de bienveillance, beaucoup d’échanges.</span><span id="longueurCommentaire">0/1000</span></div></form></dialog>
     <dialog id="profilDialog" class="sheet compact-dialog" aria-labelledby="profilTitre"><header class="sheet-header"><div><span class="eyebrow coral">FAIS COMME CHEZ TOI</span><h2 id="profilTitre">Ton espace<span class="coral">.</span></h2></div><button class="round-button" data-close="profilDialog" aria-label="Fermer mon espace"><svg class="icon"><use href="#i-close"/></svg></button></header><div class="profile-content"><span class="avatar profile-avatar my-avatar">V</span><p>Un pseudo. Ta personnalité.</p><form id="profilForm"><label for="pseudo">Comment on t’appelle ?</label><input id="pseudo" name="pseudo" type="text" minlength="2" maxlength="32" placeholder="Ton pseudo" required autocomplete="nickname"><small>Ton profil est conservé sur cet appareil, sans mot de passe.</small><p id="erreurProfil" class="form-error" role="status"></p><button class="primary-button" id="sauverProfil" type="submit">Enregistrer mon pseudo</button></form><div class="profile-stats"><div><strong id="profilLikes">0</strong><span>vidéos aimées</span></div><div><strong id="profilFavoris">0</strong><span>favoris</span></div><div><strong id="profilCommentaires">0</strong><span>commentaires</span></div></div></div></dialog>
     <dialog id="partageDialog" class="sheet compact-dialog" aria-labelledby="partageTitre"><header class="sheet-header"><div><span class="eyebrow coral">LES BONNES CHOSES SE PARTAGENT</span><h2 id="partageTitre">Fais passer le moment.</h2></div><button class="round-button" data-close="partageDialog" aria-label="Fermer le partage"><svg class="icon"><use href="#i-close"/></svg></button></header><div class="share-content"><p>Un lien direct vers cette vidéo, pour ceux à qui elle fera plaisir.</p><label for="lienPartage">Lien de la vidéo</label><input id="lienPartage" readonly><button id="copierPartage" class="primary-button"><svg class="icon"><use href="#i-link"/></svg>Copier le lien</button><button id="partageNatif" class="secondary-button" hidden>Choisir une application</button><p id="etatPartage" role="status"></p></div></dialog>
@@ -107,9 +118,18 @@
     <script src="cordova.js"></script>
     <script src="js/config.js"></script>
     <script src="js/api.js"></script>
+    <script src="js/publication-notifications.js"></script>
+    <script src="js/upload-store.js"></script>
+    <script src="js/upload-file.js"></script>
+    <script src="js/resumable-upload.js"></script>
+    <script src="js/upload-manager.js"></script>
+    <script src="js/publication-recovery.js"></script>
+    <script src="js/studio-shell.js"></script>
     <script src="js/vendor/hls.min.js"></script>
     <script src="js/video-feed.js"></script>
+    <script src="js/seek-gestures.js"></script>
     <script src="js/social.js"></script>
+    <script src="js/fullscreen-player.js"></script>
     <script src="js/player.js"></script>
 </body>
 </html>

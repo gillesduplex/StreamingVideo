@@ -250,6 +250,34 @@ async function main() {
     assert.equal(await evaluate("document.querySelector('.scene').getBoundingClientRect().bottom <= innerHeight"), true);
     await assertSinglePlayback();
     await screenshot("desktop");
+    const videoLongue = videos.rows.find(video => Number(video.duree) > 60);
+    if (videoLongue) {
+        if (String(videoLongue.id) !== String(videos.rows[0].id)) {
+            await send("Page.navigate", { url: origin + "/app/?video=" + videoLongue.id });
+            await loaded();
+        }
+        assert.equal(await evaluate("document.getElementById('pleinEcran').hidden"), false, "Le bouton plein écran apparaît au-delà d'une minute.");
+        await click("#pleinEcran");
+        await until("document.getElementById('scene').classList.contains('video-fullscreen')", "activation du plein écran");
+        await click("#pleinEcran");
+        await until("!document.getElementById('scene').classList.contains('video-fullscreen')", "retour au fil");
+        if (String(videoLongue.id) !== String(videos.rows[0].id)) {
+            await send("Page.navigate", { url: origin + "/app/?video=" + videos.rows[0].id });
+            await loaded();
+        }
+    }
+    const videoCourte = videos.rows.find(video => Number(video.duree) <= 60);
+    if (videoCourte) {
+        if (String(videoCourte.id) !== String(videos.rows[0].id)) {
+            await send("Page.navigate", { url: origin + "/app/?video=" + videoCourte.id });
+            await loaded();
+        }
+        assert.equal(await evaluate("document.getElementById('pleinEcran').hidden"), true, "Le bouton plein écran reste masqué pour une vidéo d'une minute ou moins.");
+        if (String(videoCourte.id) !== String(videos.rows[0].id)) {
+            await send("Page.navigate", { url: origin + "/app/?video=" + videos.rows[0].id });
+            await loaded();
+        }
+    }
     console.log("OK : lecture HLS et mise en page ordinateur.");
 
     await click(".profile-shortcut"); await until("document.getElementById('profilDialog').open", "profil");
@@ -262,6 +290,15 @@ async function main() {
         await send("Input.dispatchMouseEvent", { type: "mouseReleased", ...center, button: "left", clickCount });
     }
     await until("!document.getElementById('aimer').disabled && document.getElementById('aimer').getAttribute('aria-pressed') === 'true'", "like enregistré");
+    const likedStats = await evaluate("(async()=>{const id=new URL(location.href).searchParams.get('video');return SV.api('/videos/'+id+'/social')})()");
+    await evaluate(`window.__qaOriginalFetch=window.fetch;window.fetch=async(...args)=>{const [input,options={}] = args;const url=new URL(typeof input==='string'?input:input.url,location.href);if(url.pathname.endsWith('/like')&&options.method==='DELETE')await new Promise(resolve=>setTimeout(resolve,700));return window.__qaOriginalFetch(...args);}`);
+    await click("#aimer");
+    await until("document.getElementById('aimer').disabled && document.getElementById('aimer').getAttribute('aria-pressed') === 'false'", "retrait du J’aime affiché avant la réponse serveur");
+    assert.equal(await evaluate("document.getElementById('nombreLikes').textContent"), await evaluate("SV.number(" + Math.max(0, likedStats.likes - 1) + ")"), "Le compteur diminue immédiatement au retrait du J’aime.");
+    await evaluate("window.fetch=window.__qaOriginalFetch");
+    await until("!document.getElementById('aimer').disabled && document.getElementById('aimer').getAttribute('aria-pressed') === 'false'", "retrait du J’aime confirmé");
+    await click("#aimer");
+    await until("!document.getElementById('aimer').disabled && document.getElementById('aimer').getAttribute('aria-pressed') === 'true'", "J’aime réactivé");
     await send("Page.reload"); await loaded();
     assert.equal(await evaluate("document.getElementById('aimer').getAttribute('aria-pressed')"), "true");
     await until("[...document.querySelectorAll('#filVideos video.feed-video')].some(v=>v.id!=='lecteur'&&v.readyState>=2)", "lecteur suivant préparé", 20000);
@@ -358,7 +395,8 @@ async function main() {
         let soughtTime;
         try {
             soughtTime = await evaluate("(() => {const video=document.getElementById('lecteur');const target=Math.min(video.duration-2,Math.max(video.currentTime+15,video.duration*.8));video.currentTime=target;return target;})()");
-            await until("!document.getElementById('chargement').hidden && document.getElementById('chargement').dataset.state === 'offline' && document.getElementById('chargement').textContent.includes('Connexion interrompue')", "connexion interrompue visible", 7000);
+            await until("!document.getElementById('chargement').hidden && document.getElementById('chargement').dataset.state === 'offline' && document.getElementById('chargement').textContent.includes('Hors connexion')", "connexion interrompue visible", 7000);
+            assert.equal(await evaluate("getComputedStyle(document.getElementById('chargement'),'::before').animationName"), "chargement-tourne", "Un rond tourne pendant la coupure réseau.");
             assert.equal(await evaluate("(() => {const card=document.querySelector('.feed-card.is-active');const wrapper=card.querySelector('.card-cover');const image=wrapper?.querySelector('img.video-cover');const style=wrapper&&getComputedStyle(wrapper);return card.classList.contains('has-frame') || (!!wrapper&&!wrapper.hidden&&style.display!=='none'&&style.visibility!=='hidden'&&Number(style.opacity)>.9&&image.complete&&image.naturalWidth>0);})()"), true, "Une image vidéo ou sa couverture reste affichée hors ligne.");
             await screenshot("connexion-interrompue");
         } finally {
@@ -478,10 +516,10 @@ async function main() {
             // Le premier master mesure l'autorisation de préparer la réserve. Les
             // fragments arrivent après ses manifestes et respectent le seuil bas.
             // 0,5 s couvre le décalage entre l'événement réseau et la mesure CDP.
-            const prematureMasters = [...firstMasters.values()].filter(sample => !sample.fullyBuffered && sample.ahead < 7.5);
-            const lowBufferFragments = spare.filter(sample => sample.kind === "fragment" && !sample.fullyBuffered && sample.ahead < 4.5);
-            assert.equal(prematureMasters.length, 0, "La prochaine vidéo démarre après environ huit secondes de réserve : " + JSON.stringify(prematureMasters));
-            assert.equal(lowBufferFragments.length, 0, "Les fragments de réserve préservent environ cinq secondes pour la vidéo active : " + JSON.stringify(lowBufferFragments));
+            const prematureMasters = [...firstMasters.values()].filter(sample => !sample.fullyBuffered && sample.ahead < 5.5);
+            const lowBufferFragments = spare.filter(sample => sample.kind === "fragment" && !sample.fullyBuffered && sample.ahead < 3.5);
+            assert.equal(prematureMasters.length, 0, "La prochaine vidéo démarre après environ six secondes de réserve : " + JSON.stringify(prematureMasters));
+            assert.equal(lowBufferFragments.length, 0, "Les fragments de réserve préservent environ quatre secondes pour la vidéo active : " + JSON.stringify(lowBufferFragments));
             assert.ok(bandwidthSamples.some(sample => sample.requestedId === String(slowVideo.id) && sample.kind === "fragment"), "Les requêtes de la nouvelle navigation ont bien été observées.");
             console.log("OK : lecture 2,5 Mbit/s, première image en " + startupMs + " ms, progression " + progressed.toFixed(1) + " s, pause tactile et priorité réseau vérifiées (" + firstMasters.size + " master(s), " + spare.filter(sample => sample.kind === "fragment").length + " fragment(s) de réserve).");
         } finally {

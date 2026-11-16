@@ -12,14 +12,15 @@
           style-src 'self' 'unsafe-inline';
           img-src 'self' data: blob:;
           connect-src 'self' http://192.168.1.193:3001;
-          media-src 'self' blob: http://192.168.1.193:3001;
+          media-src 'self' blob: file: cdvfile: content: http://192.168.1.193:3001;
           worker-src 'self' blob:;
       ">
 
-  <title>StreamingVideo — Créer une vidéo</title>
+  <title>StreamingVideo — Créer une publication</title>
   <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
   <meta name="theme-color" content="#101014">
   <link rel="stylesheet" href="upload.css">
+  <link rel="stylesheet" href="css/publication-notifications.css">
 </head>
 <body>
   <main class="studio">
@@ -29,9 +30,24 @@
       <button id="retourner" class="bouton-outil" type="button" aria-label="Changer de caméra">&#8635;</button>
     </header>
 
-    <section class="cadre-video" aria-label="Caméra et aperçu vidéo">
+    <button id="suivrePublications" class="suivre-publications" type="button" hidden>Voir les publications</button>
+
+    <section id="transfert" class="transfert" aria-label="Publication en cours" hidden>
+      <h2>Publications</h2>
+      <p class="transfert-conseil">Deux envois au maximum. Les autres attendent leur tour.</p>
+      <div id="transfertListe" aria-live="polite"></div>
+      <button id="nouvellePublication" type="button">Créer une autre publication</button>
+    </section>
+
+    <section class="cadre-video" aria-label="Caméra et aperçu vidéo ou photo">
       <video id="camera" autoplay muted playsinline></video>
       <video id="apercu" controls playsinline hidden></video>
+      <div id="apercuPhotos" class="apercu-photos" hidden>
+        <img id="imageApercuPhoto" alt="Photo sélectionnée">
+        <span id="compteurApercuPhotos" class="compteur-photos">1/1</span>
+        <button id="photoApercuPrecedente" class="navigation-photo precedente" type="button" aria-label="Photo précédente">‹</button>
+        <button id="photoApercuSuivante" class="navigation-photo suivante" type="button" aria-label="Photo suivante">›</button>
+      </div>
       <div id="indication" class="indication">Autorise l'accès à la caméra pour commencer.</div>
       <div id="minuteur" class="minuteur" hidden>● 00:00</div>
       <button id="reessayer" class="reessayer" type="button" hidden>Activer la caméra</button>
@@ -45,6 +61,10 @@
       <button id="enregistrer" class="bouton-capture" type="button" aria-label="Démarrer l'enregistrement">
         <span class="pastille"></span>
       </button>
+      <button id="galeriePhotos" class="tuile-galerie" type="button" aria-label="Importer des photos">
+        <span class="icone-galerie">▧</span>
+        <small>Photos</small>
+      </button>
       <div class="espace"></div>
     </section>
     <p id="consigne" class="consigne">Appuie sur le bouton rouge pour enregistrer (60 secondes maximum).</p>
@@ -56,7 +76,20 @@
         <input id="titrePublication" type="text" maxlength="255" placeholder="Une histoire commence ici…">
         <label for="descriptionPublication">La petite histoire <span>facultatif</span></label>
         <textarea id="descriptionPublication" rows="3" maxlength="2000" placeholder="Raconte-nous ce qui se passe… #inspiration"></textarea>
+        <p id="publicationMultiple" hidden>Le titre ci-dessus concerne la première vidéo ; les autres utilisent leur nom. La description s'applique à toutes.</p>
         <p>Publié en tant que <a id="auteurPublication" href="index.html">toi</a></p>
+      </div>
+      <div id="optionsAudioPhoto" class="options-audio-photo" hidden>
+        <label for="sourceAudioPhoto">Son du diaporama</label>
+        <select id="sourceAudioPhoto">
+          <option value="none">Sans son</option>
+          <option value="local">Choisir un fichier audio</option>
+          <option value="extract">Extraire le son d'une vidéo</option>
+          <option value="catalog">Choisir dans le catalogue</option>
+        </select>
+        <select id="sonsCatalogue" aria-label="Sons du catalogue" hidden></select>
+        <p id="nomAudioPhoto" class="nom-audio-photo"></p>
+        <audio id="apercuAudioPhoto" controls hidden></audio>
       </div>
       <div class="boutons-apercu">
         <button id="supprimer" type="button" class="bouton-secondaire">Supprimer et recommencer</button>
@@ -64,7 +97,10 @@
       </div>
     </section>
 
-    <input id="fichier" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.mkv,.3gp,.3gpp,.m4v" hidden>
+    <input id="fichier" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.mkv,.3gp,.3gpp,.m4v" multiple hidden>
+    <input id="fichierPhotos" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden>
+    <input id="fichierAudioPhoto" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.webm" hidden>
+    <input id="fichierVideoSon" type="file" accept="video/*,.mp4,.webm,.mov,.mkv,.3gp,.3gpp,.m4v" hidden>
 
     <section class="statut" aria-live="polite">
       <p id="etat">La caméra sera affichée ici.</p>
@@ -72,9 +108,15 @@
       <a id="voirVideo" href="index.html" hidden>Voir la vidéo publiée &#8594;</a>
     </section>
   </main>
-  <script src="cordova.js"></script>
+  <script src="js/upload-bootstrap.js"></script>
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
+  <script src="js/publication-notifications.js"></script>
+  <script src="js/upload-store.js"></script>
+  <script src="js/upload-file.js"></script>
+  <script src="js/persistent-picker.js"></script>
+  <script src="js/resumable-upload.js"></script>
+  <script src="js/upload-manager.js"></script>
   <script src="upload.js" defer></script>
 </body>
 </html>

@@ -32,12 +32,24 @@ let flux = null;
 let enregistreur = null;
 let fragments = [];
 let fichierChoisi = null;
+let fichiersChoisis = [];
 let urlApercu = null;
+let photoFiles = [];
+let photoPreviewUrl = null;
+let photoIndex = 0;
+let photoAudioMode = "none";
+let photoAudioFile = null;
+let photoAudioPreviewUrl = null;
+let photoSoundId = null;
+let catalogueSons = [];
 let minuterie = null;
 let debut = 0;
 
 let cameraFace = "environment";
-let envoiEnCours = false;
+// L'écran de suivi et les envois sont indépendants : un transfert peut avancer
+// pendant que l'utilisateur prépare une nouvelle publication.
+let vuePublications = false;
+let fermetureCamera = Promise.resolve();
 let apercuNatifActif = false;
 let operationCamera = false;
 let enregistrementNatif = false;
@@ -68,7 +80,7 @@ function afficherEtat(texte, erreur = false) {
         erreur ||
         /publiée|terminée/i.test(texte);
 
-    if (!envoiEnCours || messageFinal) {
+    if (!vuePublications || messageFinal) {
 
         minuteurNotification = setTimeout(() => {
             element.classList.remove("visible");
@@ -125,6 +137,7 @@ function installerBoutonRetourner() {
         }
 
         #commandesCamera #galerie,
+        #commandesCamera #galeriePhotos,
         #commandesCamera #retournerBas {
             flex: 0 0 78px;
         }
@@ -213,6 +226,7 @@ function activerModeNatif(actif) {
         "sv-native",
         actif
     );
+    window.SVParentStudio?.cameraMode(actif);
 }
 
 // ==========================================
@@ -274,13 +288,36 @@ function effacerApercu() {
     $("apercu").load();
 
     if (urlApercu) {
-        URL.revokeObjectURL(urlApercu);
+        if (urlApercu.startsWith("blob:")) URL.revokeObjectURL(urlApercu);
     }
 
     urlApercu = null;
     fichierChoisi = null;
+    fichiersChoisis = [];
+    photoFiles = [];
+    photoIndex = 0;
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+    photoPreviewUrl = null;
+    $("apercuPhotos").hidden = true;
+    $("imageApercuPhoto").removeAttribute("src");
+    $("optionsAudioPhoto").hidden = true;
+    $("sourceAudioPhoto").value = "none";
+    $("sonsCatalogue").hidden = true;
+    $("sonsCatalogue").replaceChildren();
+    $("nomAudioPhoto").textContent = "";
+    $("apercuAudioPhoto").pause();
+    $("apercuAudioPhoto").removeAttribute("src");
+    $("apercuAudioPhoto").hidden = true;
+    if (photoAudioPreviewUrl) URL.revokeObjectURL(photoAudioPreviewUrl);
+    photoAudioPreviewUrl = null;
+    photoAudioMode = "none";
+    photoAudioFile = null;
+    photoSoundId = null;
 
     $("fichier").value = "";
+    $("fichierPhotos").value = "";
+    $("fichierAudioPhoto").value = "";
+    $("fichierVideoSon").value = "";
 
     if ($("captureNative")) {
         $("captureNative").value = "";
@@ -487,7 +524,7 @@ async function demarrerCameraWeb() {
 async function ouvrirCamera() {
 
     if (
-        envoiEnCours ||
+        vuePublications ||
         operationCamera ||
         enregistrementNatif
     ) {
@@ -563,6 +600,11 @@ async function ouvrirCamera() {
 
     } finally {
         operationCamera = false;
+        // L'utilisateur peut avoir ouvert le suivi pendant l'autorisation caméra.
+        if (vuePublications || fichierChoisi) {
+            arreterCameraWeb();
+            await arreterCameraNative();
+        }
     }
 }
 
@@ -574,7 +616,7 @@ async function retournerCamera() {
 
     if (
         operationCamera ||
-        envoiEnCours ||
+        vuePublications ||
         enregistrementNatif ||
         enregistreur?.state === "recording"
     ) {
@@ -705,11 +747,11 @@ function preparerFichierVideo(fichier) {
     }
 
     // Donner un nom utilisable par le backend
-    return new File(
-        [fichier],
-        "capture_" + Date.now() + "." + extension,
-        { type: fichier.type }
-    );
+    const nom = "capture_" + Date.now() + "." + extension;
+    if (fichier.localURL) { fichier.name = nom; return fichier; }
+    const nouveau = new Blob([fichier], { type: fichier.type });
+    Object.defineProperty(nouveau, "name", { value: nom });
+    return nouveau;
 }
 
 
@@ -739,9 +781,14 @@ async function afficherApercu(fichier) {
     await arreterCameraNative();
 
     fichierChoisi = fichier;
+    fichiersChoisis = [fichier];
+    $("apercuPhotos").hidden = true;
+    $("optionsAudioPhoto").hidden = true;
+    $("publicationMultiple").hidden = true;
+    $("envoyer").textContent = "Publier la vidéo";
     $("titrePublication").value = (fichier.name || "").replace(/\.[^.]+$/, "").replace(/_/g, " ").slice(0, 255);
 
-    urlApercu = URL.createObjectURL(fichier);
+    urlApercu = fichier.previewURL || (fichier.localURL ? fichier.localURL : URL.createObjectURL(fichier));
 
     $("apercu").src = urlApercu;
     $("apercu").hidden = false;
@@ -763,6 +810,53 @@ async function afficherApercu(fichier) {
     afficherEtat(
         "Vidéo prête à être publiée."
     );
+}
+
+function afficherPhotoApercue(index) {
+    if (!photoFiles.length) return;
+    photoIndex = (index + photoFiles.length) % photoFiles.length;
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+    photoPreviewUrl = URL.createObjectURL(photoFiles[photoIndex]);
+    $("imageApercuPhoto").src = photoPreviewUrl;
+    $("compteurApercuPhotos").textContent = (photoIndex + 1) + "/" + photoFiles.length;
+    $("photoApercuPrecedente").hidden = photoFiles.length < 2;
+    $("photoApercuSuivante").hidden = photoFiles.length < 2;
+}
+
+async function afficherApercuPhotos(selection) {
+    const photos = Array.from(selection || []);
+    if (!photos.length) return;
+    const extensions = /\.(jpe?g|png|webp)$/i;
+    if (photos.length > 1000 || photos.some(photo =>
+        !photo.size || photo.size > 50 * 1024 * 1024 ||
+        (!extensions.test(photo.name || "") && !/^image\/(jpeg|png|webp)$/i.test(photo.type || ""))
+    ) || photos.reduce((total, photo) => total + photo.size, 0) > 2 * 1024 * 1024 * 1024) {
+        afficherEtat("Sélectionne des photos JPG, PNG ou WebP de 50 Mio maximum et moins de 2 Gio au total (1 000 photos au maximum pour protéger le serveur).", true);
+        return;
+    }
+
+    effacerApercu();
+    arreterCameraWeb();
+    await arreterCameraNative();
+    photoFiles = photos;
+    photoAudioMode = "none";
+    $("titrePublication").value = (photos[0].name || "Photos").replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").slice(0, 255);
+    $("nomFichier").textContent = photos.length + (photos.length > 1 ? " photos sélectionnées" : " photo sélectionnée");
+    $("publicationMultiple").hidden = true;
+    $("apercu").hidden = true;
+    $("apercuPhotos").hidden = false;
+    $("optionsAudioPhoto").hidden = false;
+    $("envoyer").textContent = "Publier les photos";
+    $("camera").hidden = true;
+    $("commandesCamera").hidden = true;
+    $("commandesApercu").hidden = false;
+    $("consigne").hidden = true;
+    $("retourner").hidden = true;
+    $("indication").hidden = true;
+    $("reessayer").hidden = true;
+    $("minuteur").hidden = true;
+    afficherPhotoApercue(0);
+    afficherEtat("Photos prêtes. Chaque photo s'affichera trois secondes.");
 }
 
 // ==========================================
@@ -903,14 +997,8 @@ function fichierDepuisChemin(chemin) {
 
                 entree.file(fichier => {
 
-                    const nom =
-                        "capture_" + Date.now() + ".mp4";
-
-                    resolve(new File(
-                        [fichier],
-                        nom,
-                        { type: "video/mp4" }
-                    ));
+                    fichier.previewURL = entree.toURL();
+                    resolve(fichier);
 
                 }, reject);
             },
@@ -1184,11 +1272,8 @@ function demarrerEnregistrementWeb() {
             return;
         }
 
-        const fichier = new File(
-            [blob],
-            "capture_" + Date.now() + "." + extension,
-            { type }
-        );
+        const fichier = blob;
+        Object.defineProperty(fichier, "name", { value: "capture_" + Date.now() + "." + extension });
 
         await afficherApercu(fichier);
     };
@@ -1266,17 +1351,137 @@ $("enregistrer").addEventListener("click", () => {
 // 24. GALERIE
 // ==========================================
 
-$("galerie").addEventListener("click", () => {
-    $("fichier").click();
+async function afficherSelectionGalerie(selection) {
+    if (!selection.length) return;
+    let fichiers;
+    try { fichiers = selection.map(preparerFichierVideo); }
+    catch (erreur) { afficherEtat(erreur.message, true); return; }
+    await afficherApercu(fichiers[0]);
+    if (!fichierChoisi) return;
+    fichiersChoisis = [fichierChoisi, ...fichiers.slice(1)];
+    if (fichiersChoisis.length > 1) {
+        $("nomFichier").textContent = fichiersChoisis.length + " vidéos sélectionnées · aperçu de " + fichierChoisi.name;
+        $("publicationMultiple").hidden = false;
+        $("envoyer").textContent = "Publier les " + fichiersChoisis.length + " vidéos";
+    }
+}
+
+$("galerie").addEventListener("click", async () => {
+    if (!window.SVPersistentPicker?.available()) { $("fichier").click(); return; }
+    try { await afficherSelectionGalerie(await window.SVPersistentPicker.select()); }
+    catch (erreur) { afficherEtat(erreur?.message || (typeof erreur === "string" ? erreur : "Impossible de choisir les vidéos."), true); }
 });
 
-$("fichier").addEventListener("change", event => {
+$("fichier").addEventListener("change", async event => {
+    await afficherSelectionGalerie(Array.from(event.target.files || []));
+});
 
-    const fichier = event.target.files?.[0];
+$("galeriePhotos").addEventListener("click", () => $("fichierPhotos").click());
+$("fichierPhotos").addEventListener("change", event => afficherApercuPhotos(event.target.files));
+$("photoApercuPrecedente").addEventListener("click", () => afficherPhotoApercue(photoIndex - 1));
+$("photoApercuSuivante").addEventListener("click", () => afficherPhotoApercue(photoIndex + 1));
 
-    if (fichier) {
-        afficherApercu(fichier);
+async function chargerSonsCatalogue() {
+    if (catalogueSons.length) return catalogueSons;
+    const response = await fetch(API_URL + "/photo-posts/sounds", {
+        headers: { "X-Visitor-Token": SV.token }
+    });
+    const sounds = await response.json().catch(() => null);
+    if (!response.ok || !Array.isArray(sounds)) {
+        throw new Error(sounds?.message || "Impossible de charger le catalogue de sons.");
     }
+    catalogueSons = sounds;
+    return sounds;
+}
+
+$("sourceAudioPhoto").addEventListener("change", async event => {
+    const mode = event.target.value;
+    photoAudioMode = mode;
+    photoAudioFile = null;
+    photoSoundId = null;
+    $("sonsCatalogue").hidden = true;
+    $("apercuAudioPhoto").pause();
+    $("apercuAudioPhoto").removeAttribute("src");
+    $("apercuAudioPhoto").hidden = true;
+    if (photoAudioPreviewUrl) URL.revokeObjectURL(photoAudioPreviewUrl);
+    photoAudioPreviewUrl = null;
+    $("nomAudioPhoto").textContent = "";
+
+    if (mode === "local") $("fichierAudioPhoto").click();
+    else if (mode === "extract") $("fichierVideoSon").click();
+    else if (mode === "catalog") {
+        try {
+            const sounds = await chargerSonsCatalogue();
+            const select = $("sonsCatalogue");
+            select.replaceChildren();
+            if (!sounds.length) {
+                select.add(new Option("Aucun son disponible pour le moment", ""));
+                select.disabled = true;
+                select.hidden = false;
+                $("nomAudioPhoto").textContent = "Le catalogue est alimenté par l’administrateur.";
+                return;
+            }
+            select.disabled = false;
+            select.add(new Option("Choisir un son", ""));
+            for (const sound of sounds) select.add(new Option(sound.title, sound.id));
+            select.hidden = false;
+        } catch (error) {
+            event.target.value = "none";
+            photoAudioMode = "none";
+            afficherEtat(error.message, true);
+        }
+    }
+});
+
+$("fichierAudioPhoto").addEventListener("change", event => {
+    const file = event.target.files?.[0];
+    if (!file) {
+        $("sourceAudioPhoto").value = "none";
+        photoAudioMode = "none";
+        return;
+    }
+    if (!file.size || file.size > 2 * 1024 * 1024 * 1024) {
+        $("sourceAudioPhoto").value = "none";
+        photoAudioMode = "none";
+        afficherEtat("Le fichier audio est vide ou dépasse 2 Gio.", true);
+        return;
+    }
+    photoAudioFile = file;
+    $("nomAudioPhoto").textContent = file.name || "Fichier audio sélectionné";
+    photoAudioPreviewUrl = URL.createObjectURL(file);
+    $("apercuAudioPhoto").src = photoAudioPreviewUrl;
+    $("apercuAudioPhoto").hidden = false;
+});
+
+$("fichierVideoSon").addEventListener("change", event => {
+    const file = event.target.files?.[0];
+    if (!file) {
+        $("sourceAudioPhoto").value = "none";
+        photoAudioMode = "none";
+        return;
+    }
+    if (!file.size || file.size > 2 * 1024 * 1024 * 1024) {
+        $("sourceAudioPhoto").value = "none";
+        photoAudioMode = "none";
+        afficherEtat("La vidéo est vide ou dépasse 2 Gio.", true);
+        return;
+    }
+    photoAudioFile = file;
+    $("nomAudioPhoto").textContent = "Son extrait de : " + (file.name || "vidéo sélectionnée");
+});
+
+$("sonsCatalogue").addEventListener("change", event => {
+    photoSoundId = event.target.value || null;
+    const sound = catalogueSons.find(item => item.id === photoSoundId);
+    $("apercuAudioPhoto").pause();
+    if (!sound) {
+        $("apercuAudioPhoto").hidden = true;
+        $("nomAudioPhoto").textContent = "";
+        return;
+    }
+    $("nomAudioPhoto").textContent = sound.title;
+    $("apercuAudioPhoto").src = new URL(sound.url, SV.origin).href;
+    $("apercuAudioPhoto").hidden = false;
 });
 
 // Capture native déjà définie dans le HTML
@@ -1416,11 +1621,9 @@ async function suivreTraitement(id) {
             );
         }
 
-        afficherEtat(
-            video.statut === "en_cours"
-                ? "On prépare ta vidéo pour une lecture fluide…"
-                : "Vidéo reçue. En attente du traitement..."
-        );
+        afficherEtat(video.statut === "en_cours"
+            ? "On prépare ta publication pour une lecture fluide…"
+            : "Publication reçue. En attente du traitement...");
     }
 
     throw new Error(
@@ -1441,71 +1644,195 @@ function lienVersVideo(id) {
         encodeURIComponent(id);
 }
 
+function envoyerPhotos(photos) {
+    if (!API_URL) return Promise.reject(new Error("Adresse API absente : vérifie js/config.js."));
+    const tailleTotale = photos.reduce((total, photo) => total + photo.size, 0) + (photoAudioFile?.size || 0);
+    if (tailleTotale > 2 * 1024 * 1024 * 1024) {
+        return Promise.reject(new Error("La publication photo dépasse la limite technique de 2 Gio au total."));
+    }
+    const donnees = new FormData();
+    photos.forEach((photo, index) => donnees.append("photos", photo, photo.name || `photo-${index + 1}.jpg`));
+    donnees.append("titre", $("titrePublication").value.trim());
+    donnees.append("description", $("descriptionPublication").value.trim());
+    if (photoAudioMode === "local" && photoAudioFile) donnees.append("audio", photoAudioFile, photoAudioFile.name || "son.mp3");
+    if (photoAudioMode === "extract" && photoAudioFile) donnees.append("sourceVideo", photoAudioFile, photoAudioFile.name || "source.mp4");
+    if (photoAudioMode === "catalog" && photoSoundId) donnees.append("soundId", photoSoundId);
+
+    return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open("POST", API_URL + "/photo-posts");
+        request.setRequestHeader("X-Visitor-Token", SV.token);
+        request.upload.onprogress = event => {
+            if (!event.lengthComputable) return;
+            const percent = Math.floor(event.loaded / event.total * 100);
+            $("progression").hidden = false;
+            $("progression").value = percent;
+            afficherEtat("Envoi des photos : " + percent + " %");
+        };
+        request.upload.onload = () => afficherEtat("Photos envoyées. Création du diaporama…");
+        request.onerror = () => reject(new Error("L’envoi des photos a échoué. Vérifie ta connexion."));
+        request.onload = () => {
+            let result;
+            try { result = JSON.parse(request.responseText); }
+            catch { reject(new Error("Réponse inattendue HTTP " + request.status)); return; }
+            if (request.status < 200 || request.status >= 300) {
+                reject(new Error(result.message || "Erreur HTTP " + request.status));
+                return;
+            }
+            resolve(result);
+        };
+        request.send(donnees);
+    });
+}
+
 // ==========================================
 // 29. BOUTON PUBLIER
 // ==========================================
 
-$("envoyer").addEventListener("click", async () => {
+const formaterOctets = valeur => {
+    if (valeur < 1024 * 1024) return (valeur / 1024).toFixed(0) + " Kio";
+    return (valeur / (1024 * 1024)).toLocaleString("fr-FR", { maximumFractionDigits: 1 }) + " Mio";
+};
+const cartesTransferts = new Map();
 
-    if (!fichierChoisi || envoiEnCours) {
+function actualiserNavigationPublications() {
+    const nombre = cartesTransferts.size;
+    $("suivrePublications").hidden = vuePublications || !nombre;
+    $("suivrePublications").textContent = `Voir les publications (${nombre})`;
+    $("transfert").hidden = !vuePublications;
+}
+
+function afficherPublications() {
+    vuePublications = true;
+    document.body.classList.add("publication-en-cours");
+    actualiserNavigationPublications();
+    $("apercu").pause();
+    $("apercuAudioPhoto").pause();
+    arreterCameraWeb();
+    fermetureCamera = arreterCameraNative().catch(erreur => console.warn("Arrêt caméra :", erreur));
+}
+
+async function afficherStudio() {
+    vuePublications = false;
+    document.body.classList.remove("publication-en-cours");
+    actualiserNavigationPublications();
+    // Conserver un brouillon déjà sélectionné si l'utilisateur a seulement
+    // consulté le suivi. Sinon, réouvrir la caméra pour une nouvelle sélection.
+    await fermetureCamera;
+    if (!vuePublications && !fichierChoisi && !photoFiles.length) await ouvrirCamera();
+}
+
+const optionsGestionnaire = {
+    confirmUnverified: () => window.confirm("L'application peut vérifier la partie déjà copiée, mais elle n'a plus accès au reste de la vidéo d'origine. Si tu choisis un autre fichier, la vidéo publiée peut être endommagée. Confirme que tu as sélectionné exactement la vidéo d'origine pour continuer."),
+    onUpdate(record, mesure, transfert) {
+    let carte = cartesTransferts.get(transfert);
+    if (!record) {
+        carte?.remove();
+        cartesTransferts.delete(transfert);
+        if (!cartesTransferts.size && vuePublications) afficherStudio();
+        else actualiserNavigationPublications();
         return;
     }
-
-    envoiEnCours = true;
-
-    $("envoyer").disabled = true;
-    $("supprimer").disabled = true;
-
-    $("progression").hidden = false;
-
-    // Barre animée pendant l'envoi
-    $("progression").removeAttribute("value");
-
-    $("voirVideo").hidden = true;
-
-    try {
-
-        afficherEtat(
-            "Envoi de la vidéo au serveur..."
-        );
-
-        const resultat = await envoyerVideo(
-            fichierChoisi
-        );
-
-        $("progression").value = 100;
-
-        const video = await suivreTraitement(
-            resultat.id
-        );
-
-        afficherEtat(
-            "Ta vidéo est publiée. À elle de faire son chemin !"
-        );
-
-        $("voirVideo").href = lienVersVideo(
-            video.id
-        );
-
-        $("voirVideo").hidden = false;
-
-    } catch (erreur) {
-
-        console.error("Publication :", erreur);
-
-        afficherEtat(
-            "Erreur : " + erreur.message,
-            true
-        );
-
-    } finally {
-
-        envoiEnCours = false;
-
-        $("envoyer").disabled = false;
-        $("supprimer").disabled = false;
-        $("progression").hidden = true;
+    if (!carte) {
+        carte = document.createElement("article");
+        carte.className = "transfert-carte";
+        carte.innerHTML = `<div class="transfert-entete"><span class="transfert-icone" aria-hidden="true">▶</span><div><strong class="nom"></strong><p class="etat" role="status"></p></div><span class="pourcent">0 %</span></div>
+            <progress max="100" value="0" aria-label="Progression de l’envoi"></progress><p class="transfert-details"></p>
+            <div class="transfert-actions"><button class="pause" type="button">Mettre en pause</button><button class="continuer" type="button">Reprendre</button><button class="annuler" type="button">Annuler</button><input class="rechoisir" type="file" accept="video/*,.mkv,.3gp,.m4v" hidden><a class="voir" href="index.html">Voir la vidéo</a></div>`;
+        carte.querySelector(".pause").onclick = () => transfert.pause().catch(erreur => afficherEtat(erreur.message, true));
+        carte.querySelector(".continuer").onclick = async () => {
+            if (transfert.record?.needsFile && !transfert.originalFile && (!transfert.record.source?.originalUri || transfert.record.sourceUnavailable)) {
+                if (!window.SVPersistentPicker?.available()) { carte.querySelector(".rechoisir").click(); return; }
+                try {
+                    const fichiers = await window.SVPersistentPicker.select();
+                    if (fichiers.length) await gestionnaire.continueWithFile(transfert, fichiers[0]);
+                } catch (erreur) { afficherEtat(erreur?.message || (typeof erreur === "string" ? erreur : "Impossible de retrouver la vidéo."), true); }
+            } else transfert.resume();
+        };
+        carte.querySelector(".rechoisir").onchange = event => {
+            const fichier = event.target.files?.[0];
+            if (fichier) gestionnaire.continueWithFile(transfert, fichier).catch(erreur => afficherEtat(erreur.message, true));
+            event.target.value = "";
+        };
+        carte.querySelector(".annuler").onclick = () => transfert.cancel().catch(erreur => afficherEtat(erreur.message, true));
+        $("transfertListe").appendChild(carte);
+        cartesTransferts.set(transfert, carte);
     }
+    actualiserNavigationPublications();
+    carte.querySelector(".nom").textContent = record.title || record.name;
+    const etats = { preparing: "Préparation de la copie sur l’appareil…", ready: "Prêt à envoyer", queued: "En attente d’une place d’envoi", connecting: "Connexion au serveur…",
+        uploading: record.copyComplete === false ? "Copie et envoi en cours" : "Envoi en cours", paused: "Envoi en pause", interrupted: "Connexion interrompue · nouvelle tentative…",
+        finalizing: "Vérification de l’envoi…", processing: "Vidéo reçue · préparation en cours…", done: "Vidéo publiée", error: record.error || "Publication interrompue" };
+    const sourceManquante = record.needsFile && !transfert.originalFile && (!record.source?.originalUri || record.sourceUnavailable);
+    carte.querySelector(".etat").textContent = record.copyVerifying ? "Vérification de la copie conservée…" :
+        sourceManquante ? (record.state === "error" && record.error ? record.error : "La source n'est plus accessible. Appuie sur Reprendre pour choisir la même vidéo et vérifier la copie.") :
+        mesure.networkSlow && record.state === "uploading" ? "Connexion lente ou instable…" : (etats[record.state] || "Publication en cours");
+    const valeur = mesure.sent ?? record.offset ?? 0;
+    const total = record.size;
+    const pourcent = total ? Math.min(100, Math.max(0, valeur / total * 100)) : 0;
+    carte.querySelector("progress").value = pourcent;
+    carte.querySelector(".pourcent").textContent = Math.floor(pourcent) + " %";
+    let details = formaterOctets(valeur) + " sur " + formaterOctets(total || 0);
+    if (mesure.speed > 0 && record.state === "uploading") {
+        const secondes = Math.ceil(Math.max(0, total - valeur) / mesure.speed);
+        details += " · " + formaterOctets(mesure.speed) + "/s · environ " + (secondes >= 60 ? Math.ceil(secondes / 60) + " min" : secondes + " s") + " restantes";
+    }
+    if (record.state === "uploading" && valeur > (record.offset || 0)) details += " · " + formaterOctets(record.offset || 0) + " confirmés";
+    if (!record.copyComplete && !record.videoId) details += " · copie : " + formaterOctets(record.copiedBytes || 0) + " sur " + formaterOctets(record.size) + ". Garde cette page ouverte jusqu’à la fin de la copie.";
+    carte.querySelector(".transfert-details").textContent = details;
+    carte.querySelector(".pause").hidden = !["queued", "connecting", "uploading"].includes(record.state);
+    carte.querySelector(".continuer").hidden = !["paused", "interrupted", "error"].includes(record.state) && !record.needsFile;
+    carte.querySelector(".continuer").disabled = !!record.copyVerifying;
+    carte.querySelector(".continuer").textContent = "Reprendre";
+    carte.querySelector(".annuler").hidden = ["preparing", "processing", "finalizing", "done"].includes(record.state);
+    carte.querySelector(".voir").hidden = record.state !== "done";
+    if (record.state === "done") carte.querySelector(".voir").href = lienVersVideo(record.videoId);
+} };
+let gestionnairePartage = null;
+try { if (window.SVParentStudio) gestionnairePartage = window.parent.SVBackgroundUploads || null; } catch {}
+const gestionnaire = gestionnairePartage || new SVUploadManager(optionsGestionnaire);
+if (gestionnairePartage) {
+    gestionnaire.confirmUnverified = optionsGestionnaire.confirmUnverified;
+    gestionnaire.addListener(optionsGestionnaire.onUpdate);
+}
+
+$("nouvellePublication").addEventListener("click", afficherStudio);
+$("suivrePublications").addEventListener("click", afficherPublications);
+
+$("envoyer").addEventListener("click", () => {
+    if (vuePublications) return;
+    if (photoFiles.length) {
+        const photos = [...photoFiles];
+        $("progression").value = 0;
+        afficherPublications();
+        envoyerPhotos(photos).then(async result => {
+            afficherEtat("Photos reçues. Préparation du diaporama…");
+            await suivreTraitement(result.id);
+            effacerApercu();
+            $("titrePublication").value = "";
+            $("descriptionPublication").value = "";
+            $("voirVideo").href = lienVersVideo(result.id);
+            $("voirVideo").hidden = false;
+            afficherEtat("Publication photo publiée.");
+        }).catch(async error => {
+            await afficherStudio();
+            afficherEtat(error.message || "Impossible de publier les photos.", true);
+        });
+        return;
+    }
+    if (!fichiersChoisis.length) return;
+    const description = $("descriptionPublication").value.trim();
+    const titre = $("titrePublication").value.trim();
+    const fichiers = [...fichiersChoisis];
+    afficherPublications();
+    // Le gestionnaire garde chaque File indépendamment de la prévisualisation.
+    fichiers.forEach((fichier, index) => {
+        const title = index === 0 ? titre : (fichier.name || "Vidéo").replace(/\.[^.]+$/, "").replace(/_/g, " ").slice(0, 255);
+        gestionnaire.start(fichier, { title, description }).catch(erreur => afficherEtat(erreur.message || "Impossible de préparer la publication.", true));
+    });
+    effacerApercu();
+    $("titrePublication").value = "";
+    $("descriptionPublication").value = "";
 });
 
 // ==========================================
@@ -1536,6 +1863,31 @@ window.addEventListener(
     nettoyerCamera
 );
 
+// Le cadre reste vivant lorsqu'on retourne au fil : seule sa caméra s'arrête.
+window.addEventListener("message", event => {
+    if (!window.SVParentStudio || event.source !== window.parent || event.data?.type !== "sv-studio-visibility") return;
+    if (!event.data.visible) {
+        $("apercu").pause();
+        arreterCameraWeb();
+        fermetureCamera = arreterCameraNative().catch(erreur => console.warn("Arrêt caméra :", erreur));
+    } else if (!vuePublications && !fichierChoisi) {
+        Promise.resolve(fermetureCamera).then(() => ouvrirCamera());
+    }
+});
+
+// Les liens vers le fil ne doivent pas recharger la page qui porte l'envoi.
+document.addEventListener("click", event => {
+    if (!window.SVParentStudio) return;
+    const link = event.target.closest?.("a[href]");
+    if (!link || link.closest(".publication-notice")) return;
+    let destination;
+    try { destination = new URL(link.href, location.href); } catch { return; }
+    if (destination.origin !== location.origin || !destination.pathname.endsWith("/index.html")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    window.SVParentStudio.close(destination.searchParams.get("video"));
+}, true);
+
 // ==========================================
 // 31. INITIALISER LE STUDIO
 // ==========================================
@@ -1548,6 +1900,12 @@ async function initialiserStudio() {
 
     installerBoutonRetourner();
 
+    try {
+        const nombre = await gestionnaire.restore();
+        if (gestionnairePartage) for (const transfert of gestionnaire.transfers) transfert.display();
+        if (nombre) { afficherPublications(); return; }
+    }
+    catch (erreur) { afficherEtat("Stockage local indisponible : " + erreur.message, true); }
     await ouvrirCamera();
 }
 
