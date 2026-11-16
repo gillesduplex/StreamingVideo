@@ -3,7 +3,7 @@
 // La copie Cordova reste dans un unique répertoire privé dont seul un UUID
 // contrôlé constitue le nom. Le fichier original n'est jamais déplacé ni effacé.
 window.SVUploadFile = (() => {
-m    const DIRECTORY = "streamingvideo-uploads";
+    const DIRECTORY = "streamingvideo-uploads";
     const COPY_SIZE = 1024 * 1024;
 
     function safeId(id) {
